@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chess Endgame RL</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <h1>Chess Endgame RL</h1>
+        <div class="selectors">
+          <label>
+            Scenario
+            <select id="scenario-select"></select>
+          </label>
+          <label>
+            Model
+            <select id="model-select"></select>
+          </label>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel board-panel">
+          <div class="compare-strip" id="compare-strip"></div>
+          <div id="board" class="board" aria-label="Chess board"></div>
+          <div class="controls">
+            <button id="step-back">◀</button>
+            <button id="play-toggle">Play</button>
+            <button id="step-forward">▶</button>
+            <button id="reset-view">Reset</button>
+          </div>
+          <div class="info-row">
+            <span id="fen-label">FEN: --</span>
+          </div>
+          <div class="info-row">
+            <strong>Selected summary:</strong> <span id="summary-label">Benchmark not loaded.</span>
+          </div>
+        </section>
+
+        <section class="panel metrics-panel">
+          <h2>Results</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Scenario</th>
+                <th>Algorithm</th>
+                <th>Mean</th>
+                <th>Positive</th>
+                <th>Zero / Negative</th>
+              </tr>
+            </thead>
+            <tbody id="results-body"></tbody>
+          </table>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

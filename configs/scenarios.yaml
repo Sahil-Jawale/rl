@@ -1,0 +1,22 @@
+scenarios:
+  krk:
+    white_pieces: [K, R]
+    black_pieces: [K]
+    move_cap: 50
+    action_count: 36
+    reward:
+      terminal_checkmate: 1.0
+      terminal_stalemate: -0.5
+      rook_captured: -0.5
+      step_cost: -0.01
+      shaped: true
+
+  knk:
+    white_pieces: [K, N]
+    black_pieces: [K]
+    move_cap: 60
+    action_count: 16
+    reward:
+      knight_captured: -1.0
+      step_cost: 0.0
+      shaped: false
