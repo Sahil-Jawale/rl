@@ -235,10 +235,13 @@ class PPOAgent:
                 mb_returns = returns[mb_idx]
                 mb_masks = [legal_masks[i] for i in mb_idx]
 
-                self._ppo_step(
+                policy_loss, value_loss, entropy = self._ppo_step(
                     mb_states, mb_actions, mb_old_log_probs,
                     mb_advantages, mb_returns, mb_masks,
                 )
+                total_policy_loss += policy_loss
+                total_value_loss += value_loss
+                total_entropy += entropy
                 update_count += 1
 
         return {
@@ -255,7 +258,7 @@ class PPOAgent:
         advantages: np.ndarray,
         returns: np.ndarray,
         legal_masks: list,
-    ):
+    ) -> tuple[float, float, float]:
         """Perform one PPO gradient update on a mini-batch."""
         batch_size = len(states)
         h1, h2, logits, values = self._forward(states)
@@ -287,18 +290,30 @@ class PPOAgent:
         one_hot = np.zeros_like(probs)
         one_hot[np.arange(batch_size), actions] = 1.0
 
-        # Gradient of policy loss w.r.t. logits
-        # Use the simplified policy gradient: ∇L ≈ (probs - one_hot) * advantage
+        # Gradient of the clipped policy loss with respect to logits.
         mask_ratio = np.where(
             ratio * advantages < clipped_ratio * advantages,
             1.0, 0.0
         ).reshape(-1, 1)
-        policy_grad = (probs - one_hot) * advantages.reshape(-1, 1) * mask_ratio / batch_size
+        policy_grad = (
+            (probs - one_hot)
+            * (advantages * ratio).reshape(-1, 1)
+            * mask_ratio
+            / batch_size
+        )
 
-        # Add entropy gradient (encourage exploration)
-        entropy_grad = self.entropy_coef * (np.log(probs + 1e-10) + 1.0) / batch_size
+        # Differentiate the entropy bonus through the masked policy distribution.
+        entropy_per_state = -np.sum(
+            probs * np.log(probs + 1e-10), axis=1, keepdims=True
+        )
+        entropy_grad = (
+            self.entropy_coef
+            * probs
+            * (np.log(probs + 1e-10) + entropy_per_state)
+            / batch_size
+        )
 
-        logit_grad = policy_grad - entropy_grad
+        logit_grad = policy_grad + entropy_grad
 
         # Value gradient
         value_grad = (2.0 / batch_size) * (values[:, 0] - returns).reshape(-1, 1) * self.value_coef
@@ -337,6 +352,8 @@ class PPOAgent:
         self.b2 -= self.learning_rate * grad_b2
         self.w1 -= self.learning_rate * grad_w1
         self.b1 -= self.learning_rate * grad_b1
+
+        return float(policy_loss), float(value_loss), float(entropy)
 
     def save(self, path: str | Path):
         """Save model weights to disk."""

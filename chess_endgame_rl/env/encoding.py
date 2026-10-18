@@ -93,7 +93,7 @@ def move_to_action_id(board: chess.Board, move: chess.Move) -> int | None:
 
     if piece.piece_type == chess.KNIGHT:
         try:
-            return KNIGHT_DELTAS.index(delta)
+            return 8 + KNIGHT_DELTAS.index(delta)
         except ValueError:
             return None
 

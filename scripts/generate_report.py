@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 
@@ -9,10 +10,14 @@ REPORT_PATH = ROOT / "results" / "benchmark_report.md"
 
 
 def main() -> None:
-    if not RESULTS_PATH.exists():
-        raise FileNotFoundError(f"Benchmark summary not found at {RESULTS_PATH}")
+    parser = argparse.ArgumentParser(description="Generate a Markdown report from benchmark results.")
+    parser.add_argument("--input", type=Path, default=RESULTS_PATH, help="Benchmark JSON file")
+    parser.add_argument("--output", type=Path, default=REPORT_PATH, help="Markdown report destination")
+    args = parser.parse_args()
+    if not args.input.exists():
+        raise FileNotFoundError(f"Benchmark summary not found at {args.input}")
 
-    with RESULTS_PATH.open("r", encoding="utf-8") as handle:
+    with args.input.open("r", encoding="utf-8") as handle:
         results = json.load(handle)
 
     lines = [
@@ -20,33 +25,39 @@ def main() -> None:
         "",
         "## Summary",
         "",
-        "The current scaffold compares three model families under the same endgame setup and identical random seeds.",
+        "Each model is trained with the same episode budget and evaluated greedily on reproducibly seeded games.",
         "",
-        "| Scenario | Algorithm | Mean reward | Episodes |",
-        "| --- | --- | ---: | ---: |",
+        "| Scenario | Algorithm | Evaluation games | Checkmates | Checkmate rate | Draw rate | Timeout rate | Mean reward |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
 
     for item in results:
-        lines.append(f"| {item['scenario']} | {item['algorithm']} | {item['mean_reward']:.3f} | {item['summary']['count']} |")
+        evaluation = item.get("evaluation")
+        if evaluation:
+            lines.append(
+                f"| {item['scenario']} | {item['algorithm']} | {evaluation['games']} "
+                f"| {evaluation['checkmates']} | {evaluation['checkmate_rate']:.1%} "
+                f"| {evaluation['draw_rate']:.1%} | {evaluation['timeout_rate']:.1%} "
+                f"| {evaluation['mean_reward']:.3f} |"
+            )
+        else:
+            lines.append(
+                f"| {item['scenario']} | {item['algorithm']} | "
+                f"{item.get('summary', {}).get('count', 0)} | — | — | — | — "
+                f"| {item.get('mean_reward', 0.0):.3f} |"
+            )
 
     lines.extend([
         "",
-        "## Interpretation",
+        "## Benchmark configuration",
         "",
-        "- KR-K remains the primary learnable benchmark. The models are expected to learn a forced mate strategy, while the reward remains sparse and highly dependent on defender behavior.",
-        "- KN-K is a draw-control scenario. The benchmark is expected to remain near zero win rate, so the relevant metrics are survival and sanity checks rather than successful mate forcing.",
-        "- All comparisons use the same budget and the same random defender setup so that the learning curves are comparable across algorithms.",
-        "",
-        "## Next steps",
-        "",
-        "- Add stronger defender variants and tablebase-based KR-K evaluation.",
-        "- Extend the interface to compare three boards side by side and overlay move explanations.",
-        "- Expand experimentation with improved hyperparameters and equalized training steps.",
+        "See benchmark_summary.json for per-seed metrics, training outcomes, model paths, and defender settings.",
         "",
     ])
 
-    REPORT_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"Wrote benchmark report to {REPORT_PATH}")
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Wrote benchmark report to {args.output}")
 
 
 if __name__ == "__main__":

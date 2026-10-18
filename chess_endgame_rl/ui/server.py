@@ -24,7 +24,6 @@ from chess_endgame_rl.agents import DeepQNetwork, PPOAgent, TabularQAgent
 from chess_endgame_rl.env.encoding import (
     board_to_observation,
     legal_action_mask,
-    move_to_action_id,
     action_to_move,
     state_index,
 )
@@ -254,7 +253,7 @@ def new_game(req: NewGameRequest):
     # Agent makes the first move (White)
     move_count = 0
     move_history = []
-    agent_move_uci = _agent_make_move(agent, req.agent_name, board)
+    agent_move_uci = _agent_make_move(agent, req.agent_name, board, move_count)
     if agent_move_uci:
         agent_move = chess.Move.from_uci(agent_move_uci)
         agent_san = board.san(agent_move)
@@ -338,7 +337,7 @@ def make_move(req: MoveRequest):
 
     # Agent responds (White move)
     agent = _get_agent(agent_name)
-    agent_move_uci = _agent_make_move(agent, agent_name, board)
+    agent_move_uci = _agent_make_move(agent, agent_name, board, game["move_count"])
     if agent_move_uci:
         agent_move = chess.Move.from_uci(agent_move_uci)
         agent_san = board.san(agent_move)
@@ -458,42 +457,42 @@ def _check_game_status(board: chess.Board, move_count: int) -> str:
     return "playing"
 
 
-def _agent_make_move(agent, agent_name: str, board: chess.Board) -> str | None:
+def _agent_make_move(
+    agent, agent_name: str, board: chess.Board, move_count: int = 0
+) -> str | None:
     """Have the RL agent select and return a move in UCI format."""
-    if agent is None or board.turn != chess.WHITE:
+    if board.turn != chess.WHITE:
         return None
 
     legal_moves = list(board.legal_moves)
     if not legal_moves:
         return None
+    if agent is None:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{agent_name} model is unavailable. Train the model before starting a game.",
+        )
 
-    try:
-        if agent_name == "Q-Learning":
-            si = state_index(board)
-            mask = legal_action_mask(board, "krk")
-            action_id = agent.select_action_greedy(si, mask)
-            move = action_to_move(board, action_id)
-            if move and move in legal_moves:
-                return move.uci()
-        elif agent_name in ("DQN", "PPO"):
-            obs = board_to_observation(board, "krk")
-            move_frac = np.array([0.0], dtype=np.float32)  # Unknown move count
-            full_obs = np.concatenate([obs.astype(np.float32), move_frac])
-            mask = legal_action_mask(board, "krk")
+    if agent_name == "Q-Learning":
+        action_id = agent.select_action_greedy(
+            state_index(board), legal_action_mask(board, "krk")
+        )
+    elif agent_name in ("DQN", "PPO"):
+        obs = board_to_observation(board, "krk")
+        move_frac = np.array([move_count / 100.0], dtype=np.float32)
+        full_obs = np.concatenate([obs.astype(np.float32), move_frac])
+        mask = legal_action_mask(board, "krk")
+        if agent_name == "DQN":
+            action_id = agent.predict_greedy(full_obs, mask)
+        else:
+            action_id = agent.select_action_greedy(full_obs, mask)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported agent '{agent_name}'.")
 
-            if agent_name == "DQN":
-                action_id = agent.predict_greedy(full_obs, mask)
-            else:
-                action_id = agent.select_action_greedy(full_obs, mask)
-
-            move = action_to_move(board, action_id)
-            if move and move in legal_moves:
-                return move.uci()
-    except Exception:
-        pass
-
-    # Fallback: pick a random legal move
-    return random.choice(legal_moves).uci()
+    move = action_to_move(board, action_id)
+    if move is None or move not in legal_moves:
+        raise RuntimeError(f"{agent_name} selected an invalid action: {action_id}")
+    return move.uci()
 
 
 # ======================================================================

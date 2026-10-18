@@ -137,7 +137,28 @@ class EndgameEnv:
             self.done = True
             if self.board.is_stalemate():
                 info["reason"] = "stalemate_after_black"
-                reward += -5.0  # Stalemate is very bad for White
+                reward += float(self.scenario.get("reward", {}).get("terminal_stalemate", -5.0))
+            elif self.board.is_checkmate():
+                info["reason"] = "checkmate_against_white"
+                reward -= float(self.scenario.get("reward", {}).get("terminal_checkmate", 10.0))
+            elif self.board.is_insufficient_material():
+                white_piece_types = set(self._white_piece_types()) - {chess.KING}
+                white_has_extra_piece = any(
+                    piece.color == chess.WHITE and piece.piece_type in white_piece_types
+                    for piece in self.board.piece_map().values()
+                )
+                if not white_has_extra_piece:
+                    info["reason"] = "piece_captured"
+                    reward += float(
+                        self.scenario.get("reward", {}).get(
+                            "piece_captured",
+                            self.scenario.get("reward", {}).get("rook_captured", -8.0),
+                        )
+                    )
+                else:
+                    info["reason"] = "insufficient_material"
+            else:
+                info["reason"] = "draw"
             return self._observation(), reward, True, info
 
         # Check 50-move rule: if agent exceeded the move cap, episode ends as a loss
@@ -272,14 +293,16 @@ class EndgameEnv:
             reward += float(reward_cfg.get("terminal_stalemate", -5.0))
             return reward
 
-        # Check if rook was captured (should not happen in KRK with good play)
-        white_rook_exists = False
-        for sq, piece in board_after.piece_map().items():
-            if piece.color == chess.WHITE and piece.piece_type == chess.ROOK:
-                white_rook_exists = True
-                break
-        if not white_rook_exists:
-            reward += float(reward_cfg.get("rook_captured", -8.0))
+        # Penalize losing the scenario's non-king piece, if it was captured.
+        white_piece_types = set(self._white_piece_types()) - {chess.KING}
+        white_has_extra_piece = any(
+            piece.color == chess.WHITE and piece.piece_type in white_piece_types
+            for piece in board_after.piece_map().values()
+        )
+        if not white_has_extra_piece:
+            reward += float(
+                reward_cfg.get("piece_captured", reward_cfg.get("rook_captured", -8.0))
+            )
             return reward
 
         # Check bonus

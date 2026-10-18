@@ -24,6 +24,7 @@ from chess_endgame_rl.train import (
     train_ppo,
     train_q_learning,
 )
+from chess_endgame_rl.env.scenarios import list_scenarios
 
 
 def main() -> None:
@@ -31,9 +32,13 @@ def main() -> None:
     parser.add_argument("--episodes", type=int, default=None, help="Override episode count")
     parser.add_argument("--quick", action="store_true", help="Quick training with fewer episodes")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    parser.add_argument("--scenario", choices=list_scenarios(), default="krk")
+    parser.add_argument("--defender", choices=["random", "heuristic", "smart"], default="random")
     args = parser.parse_args()
 
     models_dir = ROOT / "models"
+    if args.scenario != "krk":
+        models_dir = models_dir / args.scenario
     results_dir = ROOT / "results"
     models_dir.mkdir(exist_ok=True)
     results_dir.mkdir(exist_ok=True)
@@ -62,6 +67,8 @@ def main() -> None:
     q_result = train_q_learning(
         episodes=q_episodes,
         seed=args.seed,
+        scenario_id=args.scenario,
+        defender=args.defender,
         save_path=str(models_dir / "q_learning.json"),
     )
     save_training_results(q_result, results_dir)
@@ -75,6 +82,8 @@ def main() -> None:
     dqn_result = train_dqn(
         episodes=dqn_episodes,
         seed=args.seed,
+        scenario_id=args.scenario,
+        defender=args.defender,
         save_path=str(models_dir / "dqn.npz"),
     )
     save_training_results(dqn_result, results_dir)
@@ -88,6 +97,8 @@ def main() -> None:
     ppo_result = train_ppo(
         episodes=ppo_episodes,
         seed=args.seed,
+        scenario_id=args.scenario,
+        defender=args.defender,
         save_path=str(models_dir / "ppo.npz"),
     )
     save_training_results(ppo_result, results_dir)

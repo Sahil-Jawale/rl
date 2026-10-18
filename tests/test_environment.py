@@ -30,6 +30,34 @@ def test_action_round_trip_for_king_and_rook():
     assert action_to_move(board, action_id) == move
 
 
+def test_knight_actions_do_not_overlap_king_actions():
+    board = chess.Board("4k3/8/8/8/8/8/8/1N2K3 w - - 0 1")
+    knight_move = chess.Move.from_uci("b1c3")
+    action_id = move_to_action_id(board, knight_move)
+    assert action_id is not None
+    assert action_id >= 8
+    assert action_to_move(board, action_id) == knight_move
+
+
+def test_defender_rook_capture_is_a_penalized_terminal_loss():
+    env = EndgameEnv("krk", defender="heuristic", seed=1)
+    env.board = chess.Board("7k/8/8/8/8/8/8/K6R w - - 0 1")
+    env.done = False
+    _, reward, done, info = env.step(13)  # Rh1-h7, allowing Kxh7.
+    assert done
+    assert reward < -5.0
+    assert info["reason"] == "piece_captured"
+
+
+def test_knight_is_not_mistaken_for_a_missing_rook():
+    env = EndgameEnv("knk", defender="heuristic", seed=1)
+    env.board = chess.Board("4k3/8/8/8/8/8/8/1N2K3 w - - 0 1")
+    env.done = False
+    _, reward, done, info = env.step(4)  # Move the White king one square east.
+    assert reward > -8.0
+    assert info.get("reason") != "piece_captured"
+
+
 def test_legal_mask_has_expected_length():
     env = EndgameEnv("knk", seed=1)
     mask = env.legal_action_mask()

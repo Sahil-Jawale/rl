@@ -1,7 +1,7 @@
 """Training pipelines for all three RL agents.
 
 This module provides functions to train each RL agent (Q-Learning, DQN, PPO)
-on the KRK chess endgame environment and save both the trained models and
+on configured chess endgame environments and save both the trained models and
 training metrics for comparative analysis.
 
 Training procedure:
@@ -29,13 +29,27 @@ def _classify_outcome(info: dict) -> str:
     reason = info.get("reason", "")
     if reason == "checkmate":
         return "checkmate"
-    elif "stalemate" in reason:
+    if reason == "checkmate_against_white":
+        return "loss"
+    if "stalemate" in reason:
         return "stalemate"
-    elif reason == "move_limit":
+    if reason == "move_limit":
         return "timeout"
-    elif reason == "illegal_move":
+    if reason == "illegal_move":
         return "illegal"
-    return "ongoing"
+    if reason in {"rook_captured", "piece_captured"}:
+        return "piece_captured"
+    if reason in {"insufficient_material", "draw"}:
+        return "draw"
+    if reason == "game_over":
+        return "draw"
+    return "unfinished"
+
+
+def _env_state_index(env: EndgameEnv) -> int:
+    if env.board is None:
+        raise RuntimeError("Environment state is unavailable before reset.")
+    return state_index(env.board)
 
 
 def _summarize_training(rewards: list[float], outcomes: list[str], move_counts: list[int]) -> dict:
@@ -46,12 +60,15 @@ def _summarize_training(rewards: list[float], outcomes: list[str], move_counts: 
             "mean_reward": 0.0, "std_reward": 0.0,
             "min_reward": 0.0, "max_reward": 0.0,
             "checkmate_rate": 0.0, "stalemate_rate": 0.0,
-            "timeout_rate": 0.0, "avg_moves": 0.0,
+            "timeout_rate": 0.0, "draw_rate": 0.0, "loss_rate": 0.0,
+            "unfinished_rate": 0.0, "avg_moves": 0.0,
         }
 
     checkmates = sum(1 for o in outcomes if o == "checkmate")
     stalemates = sum(1 for o in outcomes if o == "stalemate")
     timeouts = sum(1 for o in outcomes if o == "timeout")
+    losses = sum(1 for o in outcomes if o in {"loss", "piece_captured", "illegal"})
+    draws = sum(1 for o in outcomes if o in {"draw", "stalemate"})
     rewards_arr = np.array(rewards)
 
     return {
@@ -62,6 +79,9 @@ def _summarize_training(rewards: list[float], outcomes: list[str], move_counts: 
         "checkmate_rate": checkmates / total,
         "stalemate_rate": stalemates / total,
         "timeout_rate": timeouts / total,
+        "draw_rate": draws / total,
+        "loss_rate": losses / total,
+        "unfinished_rate": sum(1 for o in outcomes if o == "unfinished") / total,
         "avg_moves": float(np.mean(move_counts)) if move_counts else 0.0,
         "total_episodes": total,
         "checkmates": checkmates,
@@ -81,6 +101,7 @@ def train_q_learning(
     gamma: float = 0.99,
     epsilon_decay: float = 0.9995,
     defender: str = "random",
+    scenario_id: str = "krk",
     save_path: str | None = None,
     verbose: bool = True,
 ) -> dict:
@@ -99,7 +120,8 @@ def train_q_learning(
     Returns:
         Dictionary with training results and metrics.
     """
-    env = EndgameEnv(scenario_id="krk", defender=defender, seed=seed)
+    np.random.seed(seed)
+    env = EndgameEnv(scenario_id=scenario_id, defender=defender, seed=seed)
     agent = TabularQAgent(
         state_count=262144,
         action_count=env.action_count,
@@ -118,15 +140,15 @@ def train_q_learning(
 
     for episode in range(episodes):
         env.reset(seed=seed + episode)
-        state = state_index(env.board)
+        state = _env_state_index(env)
         legal_mask = env.legal_action_mask()
         episode_reward = 0.0
         info = {}
 
-        for step in range(100):  # Max steps per episode
+        for _ in range(100):  # Max steps per episode
             action = agent.select_action(state, legal_mask)
-            obs, reward, done, info = env.step(action)
-            next_state = state_index(env.board)
+            _, reward, done, info = env.step(action)
+            next_state = _env_state_index(env)
             next_mask = env.legal_action_mask() if not done else np.zeros(env.action_count, dtype=np.int8)
 
             agent.update(state, action, reward, next_state, done, next_mask)
@@ -165,6 +187,8 @@ def train_q_learning(
 
     return {
         "algorithm": "Q-Learning",
+        "scenario": scenario_id,
+        "defender": defender,
         "episodes": episodes,
         "training_time": elapsed,
         "metrics": metrics,
@@ -187,6 +211,7 @@ def train_dqn(
     gamma: float = 0.99,
     epsilon_decay: float = 0.9995,
     defender: str = "random",
+    scenario_id: str = "krk",
     save_path: str | None = None,
     verbose: bool = True,
 ) -> dict:
@@ -205,7 +230,8 @@ def train_dqn(
     Returns:
         Dictionary with training results and metrics.
     """
-    env = EndgameEnv(scenario_id="krk", defender=defender, seed=seed)
+    np.random.seed(seed)
+    env = EndgameEnv(scenario_id=scenario_id, defender=defender, seed=seed)
     agent = DeepQNetwork(
         input_dim=193,
         output_dim=env.action_count,
@@ -230,12 +256,12 @@ def train_dqn(
         episode_reward = 0.0
         info = {}
 
-        for step in range(100):
+        for _ in range(100):
             action = agent.predict(obs, legal_mask)
             next_obs, reward, done, info = env.step(action)
             next_mask = env.legal_action_mask() if not done else np.zeros(env.action_count, dtype=np.int8)
 
-            agent.update(obs, action, reward, next_obs, done, legal_mask)
+            agent.update(obs, action, reward, next_obs, done, next_mask)
             episode_reward += reward
             obs = next_obs
             legal_mask = next_mask
@@ -270,6 +296,8 @@ def train_dqn(
 
     return {
         "algorithm": "DQN",
+        "scenario": scenario_id,
+        "defender": defender,
         "episodes": episodes,
         "training_time": elapsed,
         "metrics": metrics,
@@ -291,6 +319,7 @@ def train_ppo(
     learning_rate: float = 3e-4,
     gamma: float = 0.99,
     defender: str = "random",
+    scenario_id: str = "krk",
     save_path: str | None = None,
     verbose: bool = True,
 ) -> dict:
@@ -308,7 +337,8 @@ def train_ppo(
     Returns:
         Dictionary with training results and metrics.
     """
-    env = EndgameEnv(scenario_id="krk", defender=defender, seed=seed)
+    np.random.seed(seed)
+    env = EndgameEnv(scenario_id=scenario_id, defender=defender, seed=seed)
     agent = PPOAgent(
         input_dim=193,
         output_dim=env.action_count,
@@ -323,8 +353,8 @@ def train_ppo(
     move_counts_history = []
     start_time = time.time()
 
-    # Collect trajectories in batches
-    trajectory_size = 10  # Update every N episodes
+    trajectory_size = 10
+    batch_trajectories: list[list] = [[] for _ in range(6)]
 
     for episode in range(episodes):
         obs = env.reset(seed=seed + episode)
@@ -340,7 +370,7 @@ def train_ppo(
         traj_log_probs = []
         traj_masks = []
 
-        for step in range(100):
+        for _ in range(100):
             action, log_prob = agent.select_action(obs, legal_mask)
             next_obs, reward, done, info = env.step(action)
             next_mask = env.legal_action_mask() if not done else np.zeros(env.action_count, dtype=np.int8)
@@ -359,12 +389,16 @@ def train_ppo(
             if done:
                 break
 
-        # Update policy at the end of each episode
         if traj_states:
-            agent.update(
+            episode_trajectory = (
                 traj_states, traj_actions, traj_rewards,
                 traj_dones, traj_log_probs, traj_masks,
             )
+            for batch, episode_data in zip(batch_trajectories, episode_trajectory):
+                batch.extend(episode_data)
+            if (episode + 1) % trajectory_size == 0 or episode + 1 == episodes:
+                agent.update(*batch_trajectories)
+                batch_trajectories = [[] for _ in range(6)]
 
         rewards_history.append(episode_reward)
         outcomes_history.append(_classify_outcome(info))
@@ -390,6 +424,8 @@ def train_ppo(
 
     return {
         "algorithm": "PPO",
+        "scenario": scenario_id,
+        "defender": defender,
         "episodes": episodes,
         "training_time": elapsed,
         "metrics": metrics,
@@ -405,12 +441,15 @@ def save_training_results(results: dict, output_dir: str | Path = "results"):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     algo_name = results["algorithm"].lower().replace("-", "_").replace(" ", "_")
-    filename = f"training_{algo_name}.json"
+    scenario = results.get("scenario", "krk")
+    filename = f"training_{algo_name}.json" if scenario == "krk" else f"training_{scenario}_{algo_name}.json"
     path = output_path / filename
 
     # Save a serializable version (exclude numpy arrays)
     serializable = {
         "algorithm": results["algorithm"],
+        "scenario": results.get("scenario", "krk"),
+        "defender": results.get("defender", "random"),
         "episodes": results["episodes"],
         "training_time": results["training_time"],
         "metrics": results["metrics"],

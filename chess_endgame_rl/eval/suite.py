@@ -7,7 +7,9 @@ from typing import Iterable
 
 import chess
 
+from chess_endgame_rl.agents import DeepQNetwork, PPOAgent, TabularQAgent
 from chess_endgame_rl.env import EndgameEnv
+from chess_endgame_rl.env.encoding import state_index
 
 
 def generate_test_positions(scenario_id: str, count: int = 50, seed: int = 42):
@@ -51,6 +53,94 @@ def summarize_game_results(results: Iterable[float]):
         "positive_rate": positive / len(values),
         "zero_rate": zero / len(values),
         "negative_rate": negative / len(values),
+    }
+
+
+def evaluate_agent(
+    agent: TabularQAgent | DeepQNetwork | PPOAgent,
+    algorithm: str,
+    scenario_id: str = "krk",
+    episodes: int = 50,
+    seed: int = 42,
+    defender: str = "random",
+) -> dict:
+    """Evaluate a trained policy greedily on reproducible, independent games."""
+    if episodes <= 0:
+        raise ValueError("episodes must be greater than zero")
+
+    outcomes: list[str] = []
+    rewards: list[float] = []
+    move_counts: list[int] = []
+    normalized_algorithm = algorithm.lower().replace("_", "-")
+    if normalized_algorithm == "qlearning":
+        normalized_algorithm = "q-learning"
+
+    for episode in range(episodes):
+        env = EndgameEnv(scenario_id=scenario_id, defender=defender, seed=seed + episode)
+        observation = env.reset(seed=seed + episode)
+        total_reward = 0.0
+        info: dict = {}
+
+        for _ in range(env.move_cap * 2):
+            legal_mask = env.legal_action_mask()
+            board = env.board
+            if board is None:
+                raise RuntimeError("Environment reset did not initialize a board.")
+            if isinstance(agent, TabularQAgent):
+                if normalized_algorithm != "q-learning":
+                    raise ValueError(f"Algorithm '{algorithm}' does not match the loaded agent.")
+                action = agent.select_action_greedy(state_index(board), legal_mask)
+            elif isinstance(agent, DeepQNetwork):
+                if normalized_algorithm != "dqn":
+                    raise ValueError(f"Algorithm '{algorithm}' does not match the loaded agent.")
+                action = agent.predict_greedy(observation, legal_mask)
+            elif isinstance(agent, PPOAgent):
+                if normalized_algorithm != "ppo":
+                    raise ValueError(f"Algorithm '{algorithm}' does not match the loaded agent.")
+                action = agent.select_action_greedy(observation, legal_mask)
+            else:
+                raise ValueError(f"Unsupported algorithm '{algorithm}'")
+
+            observation, reward, done, info = env.step(action)
+            total_reward += reward
+            if done:
+                break
+
+        reason = info.get("reason")
+        if reason == "checkmate":
+            outcome = "checkmate"
+        elif reason == "checkmate_against_white":
+            outcome = "loss"
+        elif reason in {"stalemate", "stalemate_after_black"}:
+            outcome = "stalemate"
+        elif reason == "move_limit":
+            outcome = "timeout"
+        elif reason in {"rook_captured", "piece_captured"}:
+            outcome = "piece_captured"
+        elif reason in {"draw", "insufficient_material", "game_over"}:
+            outcome = "draw"
+        elif reason == "illegal_move":
+            outcome = "illegal"
+        else:
+            outcome = "unfinished"
+
+        outcomes.append(outcome)
+        rewards.append(total_reward)
+        move_counts.append(env.move_count)
+
+    counts = {name: outcomes.count(name) for name in sorted(set(outcomes))}
+    return {
+        "episodes": episodes,
+        "defender": defender,
+        "outcomes": counts,
+        "checkmates": counts.get("checkmate", 0),
+        "checkmate_rate": counts.get("checkmate", 0) / episodes,
+        "draw_rate": sum(counts.get(name, 0) for name in ("draw", "stalemate")) / episodes,
+        "timeout_rate": counts.get("timeout", 0) / episodes,
+        "loss_rate": sum(counts.get(name, 0) for name in ("loss", "piece_captured", "illegal")) / episodes,
+        "unfinished_rate": counts.get("unfinished", 0) / episodes,
+        "mean_reward": sum(rewards) / episodes,
+        "avg_moves": sum(move_counts) / episodes,
     }
 
 

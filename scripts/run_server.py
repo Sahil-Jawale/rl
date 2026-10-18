@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -11,4 +13,8 @@ if str(ROOT) not in sys.path:
 
 
 if __name__ == "__main__":
-    uvicorn.run("chess_endgame_rl.ui.server:app", host="127.0.0.1", port=8000, reload=False)
+    parser = argparse.ArgumentParser(description="Serve the chess endgame RL web application.")
+    parser.add_argument("--host", default=os.environ.get("HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
+    args = parser.parse_args()
+    uvicorn.run("chess_endgame_rl.ui.server:app", host=args.host, port=args.port, reload=False)

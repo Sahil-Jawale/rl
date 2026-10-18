@@ -20,12 +20,23 @@ This repository is runnable as a chess endgame training and evaluation project a
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-pytest -q
-python scripts\run_benchmark.py
+python -m pytest -q
+python scripts\train_model.py --algorithm ppo --scenario krk --episodes 3000
+python scripts\run_benchmark.py --scenario krk --episodes 3000 --eval-games 50
+python scripts\generate_report.py
 python scripts\run_server.py
 ```
 
 Then open http://127.0.0.1:8000 in a browser.
+
+For a fast workflow smoke test, run `python scripts\run_benchmark.py --episodes 5 --eval-games 3 --seeds 7`.
+This small budget checks the pipeline only; it is not enough training for meaningful checkmate comparisons.
+The benchmark uses equal training budgets and reports greedy held-out checkmate, draw, timeout, and loss rates for each seed.
+It saves benchmark-only models under `models\benchmark` so it does not overwrite the models used by the website.
+
+To make the site reachable on the local network, start it with
+`python scripts\run_server.py --host 0.0.0.0 --port 8000`. For internet hosting, deploy the app behind an HTTPS-capable
+ASGI hosting provider and configure `HOST` and `PORT` as required by that provider.
 
 ## Repository layout
 
