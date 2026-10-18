@@ -1,63 +1,529 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Chess Endgame RL</title>
-    <link rel="stylesheet" href="/static/styles.css" />
-  </head>
-  <body>
-    <div class="app-shell">
-      <header class="topbar">
-        <h1>Chess Endgame RL</h1>
-        <div class="selectors">
-          <label>
-            Scenario
-            <select id="scenario-select"></select>
-          </label>
-          <label>
-            Model
-            <select id="model-select"></select>
-          </label>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Learning to Checkmate — Chess Endgame RL</title>
+  <meta name="description" content="Play against Reinforcement Learning agents (Q-Learning, DQN, PPO) in King + Rook vs King chess endgames. Lichess-inspired interactive UI with real-time evaluation and comparative analysis." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="theme-wood">
+  <div id="app" class="app-layout">
+    
+    <!-- Top Navigation Bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand">
+          <div class="brand-icon">
+            <svg viewBox="0 0 45 45" class="brand-svg">
+              <path d="M22.5 4c-1.5 0-2.8 1.2-2.8 2.7 0 .5.1.9.4 1.3l-2.6 2.6c-.4-.3-.8-.4-1.3-.4-1.5 0-2.7 1.2-2.7 2.7 0 1 .5 1.8 1.3 2.3l-2.3 5.4c-.4-.1-.7-.2-1.1-.2-2.2 0-4 1.8-4 4 0 1.6.9 2.9 2.3 3.6l-1.3 7.8c-.1.5.3 1 1 1h23c.6 0 1.1-.5 1-1l-1.3-7.8c1.3-.7 2.3-2 2.3-3.6 0-2.2-1.8-4-4-4-.4 0-.7.1-1.1.2l-2.3-5.4c.8-.5 1.3-1.3 1.3-2.3 0-1.5-1.2-2.7-2.7-2.7-.5 0-.9.1-1.3.4l-2.6-2.6c.3-.4.4-.8.4-1.3 0-1.5-1.3-2.7-2.8-2.7z" fill="#f0d9b5" stroke="#161512" stroke-width="1.5" />
+            </svg>
+          </div>
+          <div class="brand-text">
+            <span class="brand-title">CHESS ENDGAME <span class="badge-rl">RL</span></span>
+            <span class="brand-subtitle">KRK • Learning to Checkmate</span>
+          </div>
         </div>
-      </header>
 
-      <main class="layout">
-        <section class="panel board-panel">
-          <div class="compare-strip" id="compare-strip"></div>
-          <div id="board" class="board" aria-label="Chess board"></div>
-          <div class="controls">
-            <button id="step-back">◀</button>
-            <button id="play-toggle">Play</button>
-            <button id="step-forward">▶</button>
-            <button id="reset-view">Reset</button>
+        <nav class="nav-tabs" role="tablist">
+          <button class="nav-tab active" data-tab="play" id="tab-btn-play" role="tab" aria-selected="true">
+            <span class="tab-icon">⚔</span> Play Agent
+          </button>
+          <button class="nav-tab" data-tab="analysis" id="tab-btn-analysis" role="tab" aria-selected="false">
+            <span class="tab-icon">📊</span> Comparative Analysis
+          </button>
+          <button class="nav-tab" data-tab="theory" id="tab-btn-theory" role="tab" aria-selected="false">
+            <span class="tab-icon">📖</span> RL Formulation
+          </button>
+        </nav>
+      </div>
+
+      <div class="topbar-right">
+        <!-- Theme Selector -->
+        <div class="theme-dropdown-wrapper">
+          <label for="theme-select" class="visually-hidden">Board Theme</label>
+          <select id="theme-select" class="control-select theme-select" title="Change Board Theme">
+            <option value="theme-wood">🎨 Wood (Classic)</option>
+            <option value="theme-emerald">🌿 Emerald Green</option>
+            <option value="theme-blue">🌊 Tournament Blue</option>
+            <option value="theme-dark">🌑 Dark Midnight</option>
+          </select>
+        </div>
+
+        <!-- Sound Toggle -->
+        <button id="btn-sound-toggle" class="icon-btn" title="Toggle Move Sounds" aria-label="Toggle Sound">
+          <span id="sound-icon">🔊</span>
+        </button>
+
+        <!-- Status Pill -->
+        <div class="server-status-pill" id="server-status" title="API Status">
+          <span class="status-indicator-dot online"></span>
+          <span class="status-indicator-text">Online</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- ============================================================== -->
+    <!-- TAB 1: PLAY VIEW (LICHESS STYLE)                               -->
+    <!-- ============================================================== -->
+    <main id="view-play" class="view-container active">
+      <div class="play-arena">
+        
+        <!-- Center Column: Chessboard Area -->
+        <div class="board-column">
+          
+          <!-- Top Player Bar: RL Agent (White) -->
+          <div class="player-bar opponent-bar" id="opponent-bar">
+            <div class="player-profile">
+              <div class="avatar-ring bot-avatar">
+                <span class="avatar-emoji">🤖</span>
+                <span class="piece-indicator white-piece">♔♖</span>
+              </div>
+              <div class="player-details">
+                <div class="player-name-row">
+                  <span class="player-name" id="agent-display-name">RL Agent</span>
+                  <span class="agent-tag" id="agent-type-tag">Q-Learning</span>
+                </div>
+                <div class="player-subtext" id="agent-subtext">White • King + Rook (Checkmate Hunter)</div>
+              </div>
+            </div>
+
+            <!-- Material Advantage / Turn Indicator -->
+            <div class="player-status-group">
+              <span class="material-advantage" id="white-material">+5 (Rook)</span>
+              <div class="turn-bubble" id="white-turn-indicator">
+                <span class="pulse-dot"></span> White's Turn
+              </div>
+            </div>
           </div>
-          <div class="info-row">
-            <span id="fen-label">FEN: --</span>
+
+          <!-- Board Frame with Eval Bar & Square Grid -->
+          <div class="board-frame-container">
+            
+            <!-- Real-time Evaluation Bar (Lichess Style) -->
+            <div class="eval-bar-wrapper" id="eval-bar-wrapper" title="Engine Position Evaluation">
+              <div class="eval-bar" id="eval-bar">
+                <div class="eval-fill-white" id="eval-fill-white" style="height: 75%;"></div>
+                <div class="eval-fill-black" id="eval-fill-black"></div>
+              </div>
+              <div class="eval-score-tag" id="eval-score-tag">+5.8</div>
+            </div>
+
+            <!-- The 64 Squares Interactive Chessboard -->
+            <div class="board-wrapper">
+              <div id="chessboard" class="chessboard" role="grid" aria-label="Interactive KRK Chess Board">
+                <!-- Squares 0 to 63 injected via JavaScript -->
+              </div>
+
+              <!-- Checkmate / Draw Outcome Overlay Modal -->
+              <div id="game-overlay" class="game-overlay hidden">
+                <div class="overlay-card">
+                  <div class="overlay-icon" id="overlay-icon">🏆</div>
+                  <h2 class="overlay-title" id="overlay-title">Checkmate!</h2>
+                  <p class="overlay-message" id="overlay-message">The RL agent found the checkmate sequence.</p>
+                  <div class="overlay-stats" id="overlay-stats">
+                    <div class="overlay-stat-item">
+                      <span class="stat-lbl">Total Moves:</span>
+                      <span class="stat-val" id="overlay-move-count">18</span>
+                    </div>
+                    <div class="overlay-stat-item">
+                      <span class="stat-lbl">Result:</span>
+                      <span class="stat-val" id="overlay-result-label">Agent Won</span>
+                    </div>
+                  </div>
+                  <div class="overlay-actions">
+                    <button class="btn btn-primary btn-lg" id="btn-overlay-play-again">
+                      <span>⚔</span> Play Again
+                    </button>
+                    <button class="btn btn-secondary" id="btn-overlay-close">
+                      Close & Review Board
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
           </div>
-          <div class="info-row">
-            <strong>Selected summary:</strong> <span id="summary-label">Benchmark not loaded.</span>
+
+          <!-- Bottom Player Bar: User (Black) -->
+          <div class="player-bar user-bar" id="user-bar">
+            <div class="player-profile">
+              <div class="avatar-ring user-avatar">
+                <span class="avatar-emoji">👤</span>
+                <span class="piece-indicator black-piece">♚</span>
+              </div>
+              <div class="player-details">
+                <div class="player-name-row">
+                  <span class="player-name">You (Defender)</span>
+                  <span class="user-badge">Survivor</span>
+                </div>
+                <div class="player-subtext">Black • Lone King • Goal: Survive 50 Moves</div>
+              </div>
+            </div>
+
+            <div class="player-status-group">
+              <div class="turn-bubble active-turn" id="black-turn-indicator">
+                <span class="pulse-dot"></span> Your Turn
+              </div>
+            </div>
+          </div>
+
+          <!-- 50-Move Survival Progress Bar -->
+          <div class="survival-tracker-card">
+            <div class="tracker-header">
+              <span class="tracker-title">🎯 50-Move Rule Survival Gauge</span>
+              <span class="tracker-count" id="survival-count-text">0 / 50 Moves</span>
+            </div>
+            <div class="tracker-progress-track">
+              <div class="tracker-progress-fill" id="survival-progress-fill" style="width: 0%;"></div>
+            </div>
+            <div class="tracker-caption">
+              <span>Start</span>
+              <span id="tracker-remaining-text">Survive 50 full moves to defeat the RL agent!</span>
+              <span>Victory (50)</span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Right Column: Lichess Match Sidebar -->
+        <aside class="match-sidebar">
+          
+          <!-- Agent Configuration Card -->
+          <div class="sidebar-card">
+            <div class="card-title-row">
+              <h3 class="sidebar-heading">⚙️ Match Settings</h3>
+              <span class="info-pill" id="agent-trained-indicator">Model Loaded</span>
+            </div>
+            
+            <div class="form-group">
+              <label for="agent-select" class="form-label">RL Opponent Model</label>
+              <div class="custom-select-wrapper">
+                <select id="agent-select" class="control-select">
+                  <option value="Q-Learning" selected>Q-Learning (Tabular MDP • 262K)</option>
+                  <option value="DQN">DQN (Deep Q-Network)</option>
+                  <option value="PPO">PPO (Proximal Policy Opt.)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="match-actions-grid">
+              <button class="btn btn-primary" id="btn-new-game" title="Generate new KRK position">
+                <span class="btn-icon">⚔</span> New Game
+              </button>
+              <button class="btn btn-secondary" id="btn-hint" title="Suggest best King move">
+                <span class="btn-icon">💡</span> Hint
+              </button>
+              <button class="btn btn-secondary" id="btn-flip" title="Flip board orientation">
+                <span class="btn-icon">🔄</span> Flip
+              </button>
+              <button class="btn btn-outline-danger" id="btn-resign" title="Resign current game">
+                <span class="btn-icon">🏳</span> Resign
+              </button>
+            </div>
+
+            <!-- Hint Display Box -->
+            <div id="hint-box" class="hint-box hidden">
+              <div class="hint-header">
+                <span class="hint-badge">Defensive Hint</span>
+                <button class="hint-close" id="btn-hint-close">&times;</button>
+              </div>
+              <p class="hint-text" id="hint-text">Loading defensive recommendation...</p>
+            </div>
+          </div>
+
+          <!-- Live Move Notation History (Lichess 2-Column Table) -->
+          <div class="sidebar-card move-history-card">
+            <div class="card-title-row">
+              <h3 class="sidebar-heading">📋 Move Notation</h3>
+              <span class="move-badge" id="half-move-count">0 plies</span>
+            </div>
+
+            <div class="notation-table-container" id="notation-container">
+              <table class="notation-table" id="notation-table">
+                <thead>
+                  <tr>
+                    <th class="col-num">#</th>
+                    <th class="col-white">White (RL)</th>
+                    <th class="col-black">Black (You)</th>
+                  </tr>
+                </thead>
+                <tbody id="notation-tbody">
+                  <tr class="empty-row">
+                    <td colspan="3" class="empty-cell">Click "New Game" to start playing!</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Position FEN & Quick Copy -->
+            <div class="fen-bar">
+              <span class="fen-label">FEN:</span>
+              <input type="text" id="fen-input" class="fen-input" readonly value="8/8/8/8/8/8/8/8 w - - 0 1" />
+              <button id="btn-copy-fen" class="icon-btn small-btn" title="Copy FEN to clipboard">📋</button>
+            </div>
+          </div>
+
+          <!-- Quick Objective & Endgame Rules -->
+          <div class="sidebar-card rules-card">
+            <h4 class="rules-heading">🎯 KRK Win Conditions</h4>
+            <ul class="rules-list">
+              <li><strong>Agent's Goal:</strong> Box your King against the board boundary and deliver checkmate (♔♖ vs ♚).</li>
+              <li><strong>Your Goal:</strong> Evade restriction for <strong>50 full moves</strong> or induce a <strong>Stalemate / Rook capture</strong>.</li>
+              <li><strong>Move Cap:</strong> 50 moves without a capture/pawn move triggers a draw under FIDE rules.</li>
+            </ul>
+          </div>
+
+        </aside>
+
+      </div>
+    </main>
+
+    <!-- ============================================================== -->
+    <!-- TAB 2: COMPARATIVE ANALYSIS                                    -->
+    <!-- ============================================================== -->
+    <main id="view-analysis" class="view-container">
+      <div class="analysis-dashboard">
+        
+        <!-- Summary Cards -->
+        <div class="metrics-summary-grid">
+          <div class="metric-card glass-panel">
+            <div class="metric-top">
+              <span class="metric-title">Highest Checkmate %</span>
+              <span class="metric-icon">🏆</span>
+            </div>
+            <div class="metric-number" id="best-checkmate-rate">—</div>
+            <div class="metric-footer" id="best-checkmate-agent">Calculating...</div>
+          </div>
+
+          <div class="metric-card glass-panel">
+            <div class="metric-top">
+              <span class="metric-title">Fastest Mate Average</span>
+              <span class="metric-icon">⚡</span>
+            </div>
+            <div class="metric-number" id="fastest-mate-moves">—</div>
+            <div class="metric-footer">Moves per checkmate episode</div>
+          </div>
+
+          <div class="metric-card glass-panel">
+            <div class="metric-top">
+              <span class="metric-title">Lowest Stalemate %</span>
+              <span class="metric-icon">🛡</span>
+            </div>
+            <div class="metric-number" id="lowest-stalemate-rate">—</div>
+            <div class="metric-footer">Avoidance of accidental draws</div>
+          </div>
+
+          <div class="metric-card glass-panel">
+            <div class="metric-top">
+              <span class="metric-title">Algorithms Evaluated</span>
+              <span class="metric-icon">🔬</span>
+            </div>
+            <div class="metric-number">3 Models</div>
+            <div class="metric-footer">Q-Learning, DQN, PPO</div>
+          </div>
+        </div>
+
+        <!-- Comparative Matrix Table -->
+        <section class="analysis-section glass-panel">
+          <div class="section-header-row">
+            <div>
+              <h2 class="section-title">📊 Multi-Agent Performance Matrix</h2>
+              <p class="section-desc">Direct comparison of trained policies across key reinforcement learning metrics.</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" id="btn-refresh-metrics">
+              🔄 Refresh Data
+            </button>
+          </div>
+
+          <div class="table-responsive">
+            <table class="benchmark-table" id="benchmark-matrix-table">
+              <thead>
+                <tr>
+                  <th>Algorithm</th>
+                  <th>Family</th>
+                  <th>State Size</th>
+                  <th>Checkmate Rate</th>
+                  <th>Stalemate Rate</th>
+                  <th>Timeout (50 Moves)</th>
+                  <th>Mean Reward</th>
+                  <th>Avg Moves / Ep</th>
+                  <th>Training Time</th>
+                </tr>
+              </thead>
+              <tbody id="benchmark-matrix-tbody">
+                <tr>
+                  <td colspan="9" class="loading-cell">Loading benchmark results from server...</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </section>
 
-        <section class="panel metrics-panel">
-          <h2>Results</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Scenario</th>
-                <th>Algorithm</th>
-                <th>Mean</th>
-                <th>Positive</th>
-                <th>Zero / Negative</th>
-              </tr>
-            </thead>
-            <tbody id="results-body"></tbody>
-          </table>
-        </section>
-      </main>
-    </div>
+        <!-- Charts Grid -->
+        <div class="charts-grid">
+          
+          <!-- Training Reward Curves -->
+          <section class="analysis-section glass-panel">
+            <div class="chart-header">
+              <div>
+                <h3 class="chart-title">📈 Learning Curves (Rolling Reward)</h3>
+                <p class="chart-subtitle">Reward convergence across training episodes</p>
+              </div>
+              <div class="chart-legend-row" id="reward-legend">
+                <span class="legend-chip chip-ql"><span class="chip-color color-ql"></span> Q-Learning</span>
+                <span class="legend-chip chip-dqn"><span class="chip-color color-dqn"></span> DQN</span>
+                <span class="legend-chip chip-ppo"><span class="chip-color color-ppo"></span> PPO</span>
+              </div>
+            </div>
+            <div class="canvas-wrapper">
+              <canvas id="chart-rewards" width="800" height="340"></canvas>
+            </div>
+          </section>
 
-    <script src="/static/app.js"></script>
-  </body>
+          <!-- Outcome Distribution Stacked Chart -->
+          <section class="analysis-section glass-panel">
+            <div class="chart-header">
+              <div>
+                <h3 class="chart-title">🎯 Final Game Outcome Breakdown</h3>
+                <p class="chart-subtitle">Proportion of checkmate vs stalemate vs 50-move timeout</p>
+              </div>
+            </div>
+            <div class="outcome-breakdown-container" id="outcome-breakdown-container">
+              <!-- Dynamically populated bars -->
+            </div>
+          </section>
+
+        </div>
+
+        <!-- Key Observations & Academic Findings -->
+        <section class="analysis-section glass-panel">
+          <h3 class="section-title">🔍 Analytical Observations & Findings</h3>
+          <div class="findings-grid">
+            <div class="finding-card">
+              <div class="finding-badge">1. Tabular vs Deep RL</div>
+              <h4>Sample Efficiency in Bounded State Spaces</h4>
+              <p>For the KRK endgame with 262,144 discrete configurations, Tabular Q-Learning with exact state indexing updates Q-values with zero neural approximation error. However, DQN generalizes faster across symmetrical positions along diagonals and files through its shared hidden layer representations.</p>
+            </div>
+
+            <div class="finding-card">
+              <div class="finding-badge">2. Value vs Policy Methods</div>
+              <h4>PPO On-Policy Stability vs Off-Policy Replay</h4>
+              <p>DQN benefits tremendously from its Experience Replay buffer, preserving rare terminal checkmate transitions across thousands of gradient steps. PPO's clipped surrogate objective provides stable monotonic policy updates but requires higher sample volume to navigate sparse terminal rewards.</p>
+            </div>
+
+            <div class="finding-card">
+              <div class="finding-badge">3. Reward Shaping Impact</div>
+              <h4>Preventing Repetitive Rook Oscillations</h4>
+              <p>Without intermediate distance-to-edge (+0.15) and king-opposition (+0.05) shaping, agents fall into cyclic rook shuffling. With shaping, the agent learns the fundamental endgame heuristic: restrict the lone king to a board quadrant, advance the attacking king, and deliver rank mate.</p>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+
+    <!-- ============================================================== -->
+    <!-- TAB 3: RL FORMULATION & MATHEMATICAL FOUNDATIONS               -->
+    <!-- ============================================================== -->
+    <main id="view-theory" class="view-container">
+      <div class="theory-dashboard">
+        
+        <div class="glass-panel theory-card">
+          <h2 class="section-title">♟️ Problem Definition: King + Rook vs King (KRK)</h2>
+          <p class="theory-intro">
+            The King and Rook versus lone King endgame is an elementary chess endgame with a guaranteed theoretical win for the side with the rook within at most 16 moves from any legal position. Despite this theoretical certainty, discovering the mating technique through trial and error represents a rigorous multi-step reinforcement learning challenge requiring coordinated piece movement.
+          </p>
+
+          <div class="mdp-grid">
+            <div class="mdp-card">
+              <div class="mdp-header">
+                <span class="mdp-icon">🔲</span>
+                <h3>State Space $\mathcal{S}$</h3>
+              </div>
+              <p>Represented in two distinct paradigms:</p>
+              <ul>
+                <li><strong>Tabular Indexing:</strong> Compact integer representation $S = s_{wk} \cdot 64^2 + s_{wr} \cdot 64 + s_{bk}$, spanning exactly $64^3 = 262,144$ state entries.</li>
+                <li><strong>Neural Tensor:</strong> 193-dimensional feature vector containing 3 one-hot planes ($3 \times 64 = 192$ bits) indicating White King, White Rook, and Black King coordinates, concatenated with a normalized move-counter scalar $\frac{t}{100}$.</li>
+              </ul>
+            </div>
+
+            <div class="mdp-card">
+              <div class="mdp-header">
+                <span class="mdp-icon">🎮</span>
+                <h3>Action Space $\mathcal{A}$</h3>
+              </div>
+              <p>36 discrete action indices covering all permissible White piece transitions:</p>
+              <ul>
+                <li><strong>King Moves (8):</strong> 1 square in all 8 cardinal & diagonal directions.</li>
+                <li><strong>Rook Moves (28):</strong> 4 orthogonal directions $\times$ 7 maximal step distances.</li>
+                <li><strong>Action Masking:</strong> An active binary boolean mask $\mathcal{M}(s) \in \{0, 1\}^{36}$ filters out illegal moves, checks, and square collisions prior to $\text{argmax}$ or softmax sampling.</li>
+              </ul>
+            </div>
+
+            <div class="mdp-card">
+              <div class="mdp-header">
+                <span class="mdp-icon">🏆</span>
+                <h3>Reward Function $\mathcal{R}(s, a, s')$</h3>
+              </div>
+              <p>Carefully balanced reward shaping balancing sparse goals with dense guidance:</p>
+              <div class="reward-table">
+                <div class="reward-row"><span class="reward-event">Terminal Checkmate</span><span class="reward-val positive">+10.0 + (100 - t) × 0.05</span></div>
+                <div class="reward-row"><span class="reward-event">Terminal Stalemate</span><span class="reward-val negative">-5.0</span></div>
+                <div class="reward-row"><span class="reward-event">Rook Captured (Draw)</span><span class="reward-val negative">-8.0</span></div>
+                <div class="reward-row"><span class="reward-event">Check Delivered</span><span class="reward-val positive">+0.30</span></div>
+                <div class="reward-row"><span class="reward-event">Edge Restriction ($\Delta d_{\text{center}}$)</span><span class="reward-val positive">+0.15 × progress</span></div>
+                <div class="reward-row"><span class="reward-event">King Proximity ($\Delta d_{\text{kings}}$)</span><span class="reward-val positive">+0.05 × progress</span></div>
+                <div class="reward-row"><span class="reward-event">Time Decay / Move Step</span><span class="reward-val neutral">-0.02</span></div>
+              </div>
+            </div>
+
+            <div class="mdp-card">
+              <div class="mdp-header">
+                <span class="mdp-icon">⏱️</span>
+                <h3>50-Move Rule Constraint</h3>
+              </div>
+              <p>Under FIDE rules, if 50 consecutive full moves (100 half-moves) elapse without a capture or pawn move, the game is declared an immediate Draw. This imposes a strict finite horizon $T=100$ where failure to checkmate results in an episode timeout, penalizing stalled policies.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Algorithm Architecture Cards -->
+        <div class="glass-panel theory-card">
+          <h2 class="section-title">🧠 Algorithmic Architectures Compared</h2>
+          
+          <div class="algorithms-showcase">
+            <div class="algo-detail-card">
+              <div class="algo-badge ql-badge">Tabular RL</div>
+              <h3>Q-Learning</h3>
+              <p class="algo-formula">$$Q(s, a) \leftarrow Q(s, a) + \alpha \left[ r + \gamma \max_{a'} Q(s', a') - Q(s, a) \right]$$</p>
+              <p>Classic model-free off-policy control using a memory-efficient sparse hash table. Exploits greedy selection with exponential decay $\epsilon$-greedy exploration ($\epsilon_0=1.0 \to \epsilon_{\min}=0.05$). Guaranteed asymptotic convergence to the Bellman optimality equation in finite MDPs.</p>
+            </div>
+
+            <div class="algo-detail-card">
+              <div class="algo-badge dqn-badge">Value Approximation</div>
+              <h3>Deep Q-Network (DQN)</h3>
+              <p class="algo-formula">$$\mathcal{L}(\theta) = \mathbb{E}\left[ \left( r + \gamma \max_{a'} Q(s', a'; \theta^-) - Q(s, a; \theta) \right)^2 \right]$$</p>
+              <p>Feedforward deep neural architecture ($193 \to 256 \to 128 \to 36$) parameterized by weights $\theta$. Incorporates an Experience Replay Buffer (capacity 50,000 transitions) and periodic Target Network updates ($\tau=1000$ steps) to break temporal correlation and stabilize gradient variance.</p>
+            </div>
+
+            <div class="algo-detail-card">
+              <div class="algo-badge ppo-badge">Policy Gradient</div>
+              <h3>Proximal Policy Optimization (PPO)</h3>
+              <p class="algo-formula">$$L^{CLIP}(\theta) = \hat{\mathbb{E}}_t \left[ \min\left( r_t(\theta)\hat{A}_t, \, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon)\hat{A}_t \right) \right]$$</p>
+              <p>Actor-Critic architecture sharing a 128-unit representation layer, outputting both policy logits $\pi_\theta(a|s)$ and state value estimates $V_\phi(s)$. Utilizes Generalized Advantage Estimation (GAE, $\lambda=0.95$), mini-batch stochastic gradient descent, and entropy regularization.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
 </html>

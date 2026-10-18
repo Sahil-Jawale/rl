@@ -1,0 +1,44 @@
+{
+  "Q-Learning": {
+    "mean_reward": 0.4547333333333332,
+    "std_reward": 1.6859192138283363,
+    "min_reward": -3.0500000000000003,
+    "max_reward": 14.53,
+    "checkmate_rate": 0.006666666666666667,
+    "stalemate_rate": 0.0,
+    "timeout_rate": 0.3,
+    "avg_moves": 57.35333333333333,
+    "total_episodes": 150,
+    "checkmates": 1,
+    "stalemates": 0,
+    "timeouts": 45
+  },
+  "DQN": {
+    "mean_reward": 0.611,
+    "std_reward": 1.6602846141550551,
+    "min_reward": -2.85,
+    "max_reward": 13.9,
+    "checkmate_rate": 0.006666666666666667,
+    "stalemate_rate": 0.006666666666666667,
+    "timeout_rate": 0.26,
+    "avg_moves": 58.72,
+    "total_episodes": 150,
+    "checkmates": 1,
+    "stalemates": 1,
+    "timeouts": 39
+  },
+  "PPO": {
+    "mean_reward": 0.45373333333333316,
+    "std_reward": 1.1951516203208512,
+    "min_reward": -2.95,
+    "max_reward": 3.2199999999999998,
+    "checkmate_rate": 0.0,
+    "stalemate_rate": 0.0,
+    "timeout_rate": 0.3,
+    "avg_moves": 62.96,
+    "total_episodes": 150,
+    "checkmates": 0,
+    "stalemates": 0,
+    "timeouts": 45
+  }
+}
