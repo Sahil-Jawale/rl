@@ -174,11 +174,52 @@ class SmartDefender:
         return score
 
 
+class OptimalDefender:
+    """Optimal (stubborn) defender that maximizes DTM (longest resistance).
+    
+    Uses exact retrograde tablebase lookup when available, breaking ties randomly
+    with a seeded RNG. Falls back to SmartDefender if tablebase is not cached on disk.
+    """
+
+    def __init__(self, seed: int | None = None, tablebase: Any = None):
+        self.rng = random.Random(seed)
+        self.tablebase = tablebase
+        if self.tablebase is None:
+            try:
+                from chess_endgame_rl.solver.tablebase import Tablebase, CACHE_DIR
+                krk_path = CACHE_DIR / "krk.npz"
+                if krk_path.exists():
+                    self.tablebase = Tablebase.load(krk_path)
+            except Exception:
+                self.tablebase = None
+        self._fallback = SmartDefender(seed)
+
+    def choose_move(self, board: chess.Board) -> chess.Move:
+        legal_moves = list(board.legal_moves)
+        if not legal_moves:
+            raise ValueError("No legal moves available for defender")
+
+        # Priority 1: Immediate draw capture (King takes unprotected piece)
+        for m in legal_moves:
+            if board.is_capture(m):
+                return m
+
+        if self.tablebase is not None:
+            try:
+                best_moves = list(self.tablebase.optimal_moves(board))
+                if best_moves:
+                    return self.rng.choice(best_moves)
+            except Exception:
+                pass
+
+        return self._fallback.choose_move(board)
+
+
 def defender_for(name: str | None, seed: int | None = None):
     """Factory function to create a defender by name.
     
     Args:
-        name: One of 'random', 'heuristic', 'smart'.
+        name: One of 'random', 'heuristic', 'smart', 'optimal'.
         seed: Random seed for reproducibility.
     
     Returns:
@@ -189,6 +230,8 @@ def defender_for(name: str | None, seed: int | None = None):
         return RandomDefender(seed)
     if name == "heuristic":
         return HeuristicDefender(seed)
-    if name in {"smart", "optimal", "tablebase-optimal", "tablebase_optimal"}:
+    if name == "smart":
         return SmartDefender(seed)
-    raise ValueError(f"Unsupported defender '{name}'. Use 'random', 'heuristic', or 'smart'.")
+    if name in {"optimal", "stubborn", "tablebase-optimal", "tablebase_optimal"}:
+        return OptimalDefender(seed)
+    raise ValueError(f"Unsupported defender '{name}'. Use 'random', 'heuristic', 'smart', or 'optimal'.")
