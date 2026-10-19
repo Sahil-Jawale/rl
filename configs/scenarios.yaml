@@ -4,7 +4,7 @@ scenarios:
     black_pieces: [K]
     move_cap: 50
     action_count: 36
-    king_separation: 2
+    king_separation: 1
     reward:
       terminal_checkmate: 10.0
       terminal_stalemate: -5.0
@@ -18,7 +18,7 @@ scenarios:
     black_pieces: [K]
     move_cap: 50
     action_count: 16
-    king_separation: 2
+    king_separation: 1
     reward:
       terminal_checkmate: 10.0
       terminal_stalemate: -5.0

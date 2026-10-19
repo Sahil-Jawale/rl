@@ -113,11 +113,14 @@ class EndgameEnv:
         info: dict[str, Any] = {
             "white_move": chosen_move.uci(),
             "move_count": self.move_count,
+            "terminated": False,
+            "truncated": False,
         }
 
         # Check if game is over after White's move
         if self.board.is_game_over():
             self.done = True
+            info["terminated"] = True
             if self.board.is_checkmate():
                 info["reason"] = "checkmate"
             elif self.board.is_stalemate():
@@ -135,6 +138,7 @@ class EndgameEnv:
         # Check if game is over after Black's move
         if self.board.is_game_over():
             self.done = True
+            info["terminated"] = True
             if self.board.is_stalemate():
                 info["reason"] = "stalemate_after_black"
                 reward += float(self.scenario.get("reward", {}).get("terminal_stalemate", -5.0))
@@ -166,6 +170,8 @@ class EndgameEnv:
             self.done = True
             reward += -3.0  # Penalty for failing to mate in time
             info["reason"] = "move_limit"
+            info["terminated"] = False
+            info["truncated"] = True
             return self._observation(), reward, True, info
 
         return self._observation(), reward, False, info
@@ -325,16 +331,6 @@ class EndgameEnv:
             cd_after = center_distance(bk_after)
             # Reward for pushing Black King further from center
             reward += (cd_after - cd_before) * 0.15
-
-            # Edge bonus: reward for Black King being on edge/corner
-            def edge_score(sq: int) -> float:
-                r, f = chess.square_rank(sq), chess.square_file(sq)
-                edge_dist = min(r, 7 - r, f, 7 - f)
-                if edge_dist == 0:
-                    return 0.1
-                return 0.0
-
-            reward += edge_score(bk_after)
 
         # King proximity: White King should approach Black King for mating
         if wk_before is not None and wk_after is not None and bk_after is not None:

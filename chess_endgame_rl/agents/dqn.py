@@ -96,6 +96,7 @@ class DeepQNetwork:
         replay_capacity: int = 10000,
         batch_size: int = 64,
         target_update_freq: int = 100,
+        use_double_dqn: bool = True,
     ):
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -109,6 +110,7 @@ class DeepQNetwork:
         self.batch_size = batch_size
         self.replay_buffer = ReplayBuffer(replay_capacity)
         self.target_update_freq = target_update_freq
+        self.use_double_dqn = use_double_dqn
         self.train_steps = 0
 
         # Initialize weights with He initialization
@@ -190,6 +192,44 @@ class DeepQNetwork:
             q[legal_mask == 0] = -1e9
         return int(np.argmax(q))
 
+    def compute_target_q(
+        self,
+        current_q: np.ndarray,
+        actions: np.ndarray,
+        rewards: np.ndarray,
+        next_states: np.ndarray,
+        dones: np.ndarray,
+        legal_masks: np.ndarray,
+    ) -> np.ndarray:
+        """Compute target Q-values using Double-DQN (decoupled) or standard DQN.
+        
+        Double-DQN decoupled rule:
+            a* = argmax_{a in LEGAL(s')} Q_online(s', a)
+            target = r + gamma * (1 - done) * Q_target(s', a*)
+        """
+        target_q = current_q.copy()
+        _, _, next_q_target = self._forward(next_states, use_target=True)
+
+        if self.use_double_dqn:
+            _, _, next_q_online = self._forward(next_states, use_target=False)
+            for i in range(len(current_q)):
+                if dones[i]:
+                    target_q[i, actions[i]] = rewards[i]
+                else:
+                    masked_online = next_q_online[i].copy()
+                    masked_online[legal_masks[i] == 0] = -1e9
+                    best_a = int(np.argmax(masked_online))
+                    target_q[i, actions[i]] = rewards[i] + self.gamma * next_q_target[i, best_a]
+        else:
+            for i in range(len(current_q)):
+                masked_target = next_q_target[i].copy()
+                masked_target[legal_masks[i] == 0] = -1e9
+                if dones[i]:
+                    target_q[i, actions[i]] = rewards[i]
+                else:
+                    target_q[i, actions[i]] = rewards[i] + self.gamma * np.max(masked_target)
+        return target_q
+
     def update(self, state, action, reward, next_state, done, legal_mask=None):
         """Store transition and train on a mini-batch from replay buffer."""
         if legal_mask is None:
@@ -204,17 +244,11 @@ class DeepQNetwork:
 
         # Forward pass
         h1, h2, current_q = self._forward(states, use_target=False)
-        _, _, next_q = self._forward(next_states, use_target=True)
 
-        # Compute target Q-values
-        target_q = current_q.copy()
-        for i in range(len(states)):
-            masked_next_q = next_q[i].copy()
-            masked_next_q[legal_masks[i] == 0] = -1e9
-            if dones[i]:
-                target_q[i, actions[i]] = rewards[i]
-            else:
-                target_q[i, actions[i]] = rewards[i] + self.gamma * np.max(masked_next_q)
+        # Compute target Q-values with Double-DQN
+        target_q = self.compute_target_q(
+            current_q, actions, rewards, next_states, dones, legal_masks
+        )
 
         # Backpropagation (gradient descent)
         batch_size = len(states)
