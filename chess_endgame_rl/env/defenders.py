@@ -16,6 +16,11 @@ import random
 
 import chess
 
+from chess_endgame_rl.solver.tablebase import (
+    Tablebase,
+    existing_tablebase_cache_path,
+)
+
 
 class RandomDefender:
     """Picks a random legal move for the Black King."""
@@ -177,42 +182,54 @@ class SmartDefender:
 class OptimalDefender:
     """Optimal (stubborn) defender that maximizes DTM (longest resistance).
     
-    Uses exact retrograde tablebase lookup when available, breaking ties randomly
-    with a seeded RNG. Falls back to SmartDefender if tablebase is not cached on disk.
+    Uses exact retrograde tablebase lookup, breaking ties randomly with a seeded RNG.
     """
 
-    def __init__(self, seed: int | None = None, tablebase: Any = None):
+    def __init__(self, seed: int | None = None, tablebase: Tablebase | None = None):
         self.rng = random.Random(seed)
-        self.tablebase = tablebase
-        if self.tablebase is None:
-            try:
-                from chess_endgame_rl.solver.tablebase import Tablebase, CACHE_DIR
-                krk_path = CACHE_DIR / "krk.npz"
-                if krk_path.exists():
-                    self.tablebase = Tablebase.load(krk_path)
-            except Exception:
-                self.tablebase = None
-        self._fallback = SmartDefender(seed)
+        self._tablebases: dict[int, Tablebase] = {}
+        if tablebase is not None:
+            self._tablebases[tablebase.piece_type] = tablebase
+        else:
+            for piece_type in (chess.QUEEN, chess.ROOK):
+                path = existing_tablebase_cache_path(piece_type)
+                if path.exists():
+                    self._tablebases[piece_type] = Tablebase.load(path)
 
     def choose_move(self, board: chess.Board) -> chess.Move:
         legal_moves = list(board.legal_moves)
         if not legal_moves:
             raise ValueError("No legal moves available for defender")
+        if board.turn != chess.BLACK:
+            raise ValueError("OptimalDefender can only choose a move when Black is to move.")
 
-        # Priority 1: Immediate draw capture (King takes unprotected piece)
-        for m in legal_moves:
-            if board.is_capture(m):
-                return m
+        attacker_pieces = [
+            piece.piece_type
+            for piece in board.piece_map().values()
+            if piece.color == chess.WHITE and piece.piece_type != chess.KING
+        ]
+        if (
+            len(board.piece_map()) != 3
+            or board.king(chess.WHITE) is None
+            or board.king(chess.BLACK) is None
+            or len(attacker_pieces) != 1
+            or attacker_pieces[0] not in (chess.QUEEN, chess.ROOK)
+        ):
+            raise ValueError("OptimalDefender supports only KQvK and KRvK positions.")
 
-        if self.tablebase is not None:
-            try:
-                best_moves = list(self.tablebase.optimal_moves(board))
-                if best_moves:
-                    return self.rng.choice(best_moves)
-            except Exception:
-                pass
+        piece_type = attacker_pieces[0]
+        tablebase = self._tablebases.get(piece_type)
+        if tablebase is None:
+            kind = "KQvK" if piece_type == chess.QUEEN else "KRvK"
+            raise FileNotFoundError(
+                f"No tablebase cache is available for {kind}; "
+                "run scripts/build_tablebase.py to build it."
+            )
 
-        return self._fallback.choose_move(board)
+        best_moves = tablebase.optimal_moves(board)
+        if not best_moves:
+            raise RuntimeError("The tablebase returned no optimal move for a non-terminal position.")
+        return self.rng.choice(sorted(best_moves, key=lambda move: move.uci()))
 
 
 def defender_for(name: str | None, seed: int | None = None):

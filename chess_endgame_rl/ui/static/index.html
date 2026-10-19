@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Learning to Checkmate — Chess Endgame RL</title>
-  <meta name="description" content="Play against Reinforcement Learning agents (Q-Learning, DQN, PPO) in King + Rook vs King chess endgames. Lichess-inspired interactive UI with real-time evaluation and comparative analysis." />
+  <meta name="description" content="Play King + Rook vs King chess endgames against DQN agents, with solver-based analysis and model comparisons." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=20261019-model-picker" />
 </head>
 <body class="theme-wood">
   <div id="app" class="app-layout">
@@ -85,7 +85,7 @@
               <div class="player-details">
                 <div class="player-name-row">
                   <span class="player-name" id="agent-display-name">RL Agent</span>
-                  <span class="agent-tag" id="agent-type-tag">Q-Learning</span>
+                  <span class="agent-tag" id="agent-type-tag">DQN</span>
                 </div>
                 <div class="player-subtext" id="agent-subtext">White • King + Rook (Checkmate Hunter)</div>
               </div>
@@ -202,12 +202,16 @@
             <div class="form-group">
               <label for="agent-select" class="form-label">RL Opponent Model</label>
               <div class="custom-select-wrapper">
-                <select id="agent-select" class="control-select">
-                  <option value="Q-Learning" selected>Q-Learning (Tabular MDP • 262K)</option>
-                  <option value="DQN">DQN (Deep Q-Network)</option>
-                  <option value="PPO">PPO (Proximal Policy Opt.)</option>
+                <select id="agent-select" class="control-select" aria-describedby="agent-availability">
+                  <option value="DQN">DQN baseline</option>
+                  <option value="Dueling network (tablebase warm-start)" disabled>Loading tablebase model…</option>
                 </select>
               </div>
+              <p class="form-help" id="agent-availability" role="status">Checking trained checkpoints…</p>
+            </div>
+
+            <div class="agent-analysis" id="agent-analysis" aria-live="polite">
+              Start a game to see move and tablebase details.
             </div>
 
             <div class="match-actions-grid">
@@ -292,7 +296,7 @@
         <div class="metrics-summary-grid">
           <div class="metric-card glass-panel">
             <div class="metric-top">
-              <span class="metric-title">Highest Checkmate %</span>
+              <span class="metric-title">Highest Training Mate Rate</span>
               <span class="metric-icon">🏆</span>
             </div>
             <div class="metric-number" id="best-checkmate-rate">—</div>
@@ -301,7 +305,7 @@
 
           <div class="metric-card glass-panel">
             <div class="metric-top">
-              <span class="metric-title">Fastest Mate Average</span>
+              <span class="metric-title">Training Mean Moves</span>
               <span class="metric-icon">⚡</span>
             </div>
             <div class="metric-number" id="fastest-mate-moves">—</div>
@@ -310,7 +314,7 @@
 
           <div class="metric-card glass-panel">
             <div class="metric-top">
-              <span class="metric-title">Lowest Stalemate %</span>
+              <span class="metric-title">Lowest Training Stalemate Rate</span>
               <span class="metric-icon">🛡</span>
             </div>
             <div class="metric-number" id="lowest-stalemate-rate">—</div>
@@ -319,11 +323,11 @@
 
           <div class="metric-card glass-panel">
             <div class="metric-top">
-              <span class="metric-title">Algorithms Evaluated</span>
+              <span class="metric-title">Legacy Baselines</span>
               <span class="metric-icon">🔬</span>
             </div>
-            <div class="metric-number">3 Models</div>
-            <div class="metric-footer">Q-Learning, DQN, PPO</div>
+            <div class="metric-number">3</div>
+            <div class="metric-footer">Shown for historical comparison; DQN agents are playable above</div>
           </div>
         </div>
 
@@ -331,8 +335,8 @@
         <section class="analysis-section glass-panel">
           <div class="section-header-row">
             <div>
-              <h2 class="section-title">📊 Multi-Agent Performance Matrix</h2>
-              <p class="section-desc">Direct comparison of trained policies across key reinforcement learning metrics.</p>
+              <h2 class="section-title">📊 Legacy Training Summaries</h2>
+              <p class="section-desc">These are training-episode outcomes, not a controlled head-to-head evaluation. See the solver checkpoint table below for held-out Dueling Double-DQN metrics.</p>
             </div>
             <button class="btn btn-secondary btn-sm" id="btn-refresh-metrics">
               🔄 Refresh Data
@@ -346,9 +350,9 @@
                   <th>Algorithm</th>
                   <th>Family</th>
                   <th>State Size</th>
-                  <th>Checkmate Rate</th>
-                  <th>Stalemate Rate</th>
-                  <th>Timeout (50 Moves)</th>
+                  <th>Training Mate Rate</th>
+                  <th>Training Stalemate Rate</th>
+                  <th>Training Timeout Rate</th>
                   <th>Mean Reward</th>
                   <th>Avg Moves / Ep</th>
                   <th>Training Time</th>
@@ -363,6 +367,33 @@
           </div>
         </section>
 
+        <section class="analysis-section glass-panel">
+          <div class="section-header-row">
+            <div>
+              <h2 class="section-title">Tablebase-Supervised &amp; RL-Fine-Tuned Models</h2>
+              <p class="section-desc">Solver move-quality and game results are shown separately; validation accuracy is not a game win rate.</p>
+            </div>
+          </div>
+          <div class="table-responsive">
+            <table class="benchmark-table">
+              <thead>
+                <tr>
+                  <th>Checkpoint</th>
+                  <th>Status</th>
+                  <th>Optimal move (validation)</th>
+                  <th>Keeps win</th>
+                  <th>Win → draw</th>
+                  <th>Win rate vs random</th>
+                  <th>Win rate vs optimal</th>
+                </tr>
+              </thead>
+              <tbody id="solver-models-tbody">
+                <tr><td colspan="7" class="loading-cell">Loading checkpoint and evaluation data…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <!-- Charts Grid -->
         <div class="charts-grid">
           
@@ -371,7 +402,7 @@
             <div class="chart-header">
               <div>
                 <h3 class="chart-title">📈 Learning Curves (Rolling Reward)</h3>
-                <p class="chart-subtitle">Reward convergence across training episodes</p>
+                <p class="chart-subtitle">Legacy-agent training reward history; not comparable to tablebase move-quality metrics</p>
               </div>
               <div class="chart-legend-row" id="reward-legend">
                 <span class="legend-chip chip-ql"><span class="chip-color color-ql"></span> Q-Learning</span>
@@ -405,20 +436,20 @@
           <div class="findings-grid">
             <div class="finding-card">
               <div class="finding-badge">1. Tabular vs Deep RL</div>
-              <h4>Sample Efficiency in Bounded State Spaces</h4>
-              <p>For the KRK endgame with 262,144 discrete configurations, Tabular Q-Learning with exact state indexing updates Q-values with zero neural approximation error. However, DQN generalizes faster across symmetrical positions along diagonals and files through its shared hidden layer representations.</p>
+              <h4>Existing agents are weak at converting KRvK</h4>
+              <p>The saved 200-game benchmark recorded 2 checkmates each for Q-Learning and DQN (1%), and none for PPO. These results are poor; they motivate the tablebase-supervised Dueling Double-DQN experiment rather than proving that the new model is stronger.</p>
             </div>
 
             <div class="finding-card">
               <div class="finding-badge">2. Value vs Policy Methods</div>
-              <h4>PPO On-Policy Stability vs Off-Policy Replay</h4>
-              <p>DQN benefits tremendously from its Experience Replay buffer, preserving rare terminal checkmate transitions across thousands of gradient steps. PPO's clipped surrogate objective provides stable monotonic policy updates but requires higher sample volume to navigate sparse terminal rewards.</p>
+              <h4>Keep comparisons protocol-aware</h4>
+              <p>Training episode metrics, held-out tablebase move accuracy, and game win rates measure different things. The checkpoint comparison reports these separately; no model is called strong until it has been evaluated on the same fixed positions and defender protocol.</p>
             </div>
 
             <div class="finding-card">
               <div class="finding-badge">3. Reward Shaping Impact</div>
-              <h4>Preventing Repetitive Rook Oscillations</h4>
-              <p>Without intermediate distance-to-edge (+0.15) and king-opposition (+0.05) shaping, agents fall into cyclic rook shuffling. With shaping, the agent learns the fundamental endgame heuristic: restrict the lone king to a board quadrant, advance the attacking king, and deliver rank mate.</p>
+              <h4>Supervised warm start is not proof of RL improvement</h4>
+              <p>The warm-start model imitates exact tablebase labels. Optional Double-DQN fine-tuning starts from that checkpoint and can improve or degrade it. We compare both versions independently and retain the distinction in the results table.</p>
             </div>
           </div>
         </section>
@@ -524,6 +555,6 @@
 
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=20261019-model-picker"></script>
 </body>
 </html>

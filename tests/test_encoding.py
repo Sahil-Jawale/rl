@@ -67,11 +67,12 @@ def test_legal_mask_count_equals_board_legal_moves():
         )
 
 
-def test_action_roundtrip_1000_random_positions():
-    """Round-trip every legal move for random legal positions: index_to_move(move_to_index(m)) == m."""
+def test_action_roundtrip_10000_random_positions():
+    """Round-trip every legal move for 10,000 random legal positions."""
     rng = random.Random(42)
-    sample_size = 1000
-    for _ in range(sample_size):
+    sample_size = 10_000
+    valid_positions = 0
+    while valid_positions < sample_size:
         # Generate random 3-piece position
         board = chess.Board(None)
         turn = rng.choice([chess.WHITE, chess.BLACK])
@@ -84,6 +85,7 @@ def test_action_roundtrip_1000_random_positions():
         if not board.is_valid() or board.is_checkmate() or board.is_stalemate():
             continue
 
+        valid_positions += 1
         for move in board.legal_moves:
             idx = move_to_index(move, perspective=board.turn)
             assert 0 <= idx < 4096
@@ -91,3 +93,9 @@ def test_action_roundtrip_1000_random_positions():
             assert reconstructed == move, (
                 f"Round-trip failed: original={move}, reconstructed={reconstructed}, turn={board.turn}"
             )
+
+
+def test_underpromotion_is_rejected_by_action_encoding():
+    move = chess.Move.from_uci("a7a8n")
+    with pytest.raises(ValueError, match="Only queen promotions"):
+        move_to_index(move)

@@ -175,7 +175,8 @@ const state = {
   selectedSquare: null,
   lastMove: null, // { from: 'a1', to: 'a4' }
   hintSquare: null,
-  agentName: 'Q-Learning',
+  agentName: 'DQN',
+  trainedAgents: new Set(),
   isFlipped: false, // false = Black at top, White bottom. true = Black at bottom
   moveHistory: [],
   isProcessing: false,
@@ -203,6 +204,8 @@ const DOM = {
   agentTypeTag: document.getElementById('agent-type-tag'),
   agentSubtext: document.getElementById('agent-subtext'),
   agentTrainedIndicator: document.getElementById('agent-trained-indicator'),
+  agentAvailability: document.getElementById('agent-availability'),
+  agentAnalysis: document.getElementById('agent-analysis'),
   whiteTurnIndicator: document.getElementById('white-turn-indicator'),
   blackTurnIndicator: document.getElementById('black-turn-indicator'),
   whiteMaterial: document.getElementById('white-material'),
@@ -234,6 +237,7 @@ const DOM = {
   viewTheory: document.getElementById('view-theory'),
   // Analysis elements
   benchmarkMatrixTbody: document.getElementById('benchmark-matrix-tbody'),
+  solverModelsTbody: document.getElementById('solver-models-tbody'),
   bestCheckmateRate: document.getElementById('best-checkmate-rate'),
   bestCheckmateAgent: document.getElementById('best-checkmate-agent'),
   fastestMateMoves: document.getElementById('fastest-mate-moves'),
@@ -474,7 +478,8 @@ async function startNewGame() {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to create game: ${response.statusText}`);
+      const errJson = await response.json().catch(() => ({}));
+      throw new Error(errJson.detail || `Failed to create game: ${response.statusText}`);
     }
 
     const data = await response.json();
@@ -482,7 +487,7 @@ async function startNewGame() {
     sounds.playMove();
   } catch (err) {
     console.error('Error starting game:', err);
-    alert(`Could not start new game: ${err.message}`);
+    DOM.agentAvailability.textContent = `Could not start game: ${err.message}`;
   } finally {
     state.isProcessing = false;
   }
@@ -531,7 +536,7 @@ async function executeUserMove(moveUci) {
     }
   } catch (err) {
     console.error('Move error:', err);
-    alert(`Error making move: ${err.message}`);
+    DOM.agentAvailability.textContent = `Move failed: ${err.message}`;
   } finally {
     state.isProcessing = false;
   }
@@ -600,6 +605,8 @@ function syncGameState(data) {
   state.status = data.status || 'playing';
   state.eval = data.evaluation || state.eval;
   state.moveHistory = data.move_history || state.moveHistory;
+  state.agentName = data.agent_name || state.agentName;
+  updateAgentMoveAnalysis(data.agent_analysis || {});
 
   // Last move
   if (data.agent_move) {
@@ -620,6 +627,7 @@ function syncGameState(data) {
   updateSurvivalTracker();
   updateMoveNotationTable();
   DOM.fenInput.value = state.fen;
+  updateAgentInfoUI();
 
   // Check game over
   if (state.status !== 'playing') {
@@ -702,16 +710,36 @@ function updateMoveNotationTable() {
 }
 
 function updateAgentInfoUI() {
-  DOM.agentDisplayName.textContent = `${state.agentName} (RL Agent)`;
+  DOM.agentDisplayName.textContent = state.agentName;
   DOM.agentTypeTag.textContent = state.agentName;
-
-  if (state.agentName === 'Q-Learning') {
-    DOM.agentSubtext.textContent = 'Tabular MDP • 262,144 Exact States • ε-Greedy';
-  } else if (state.agentName === 'DQN') {
-    DOM.agentSubtext.textContent = 'Deep Q-Network • Replay Buffer • Target Network';
-  } else if (state.agentName === 'PPO') {
-    DOM.agentSubtext.textContent = 'Proximal Policy Opt. • Actor-Critic • Clipped GAE';
+  DOM.agentTrainedIndicator.textContent = state.trainedAgents.has(state.agentName)
+    ? 'Checkpoint ready'
+    : 'Unavailable';
+  if (state.agentName === 'DQN') {
+    DOM.agentSubtext.textContent = 'Legacy KRvK DQN baseline • legal moves only';
+  } else if (state.agentName.includes('fine-tuned')) {
+    DOM.agentSubtext.textContent = 'Tablebase-supervised initialization + Double-DQN fine-tuning';
+  } else if (state.agentName.includes('warm-start')) {
+    DOM.agentSubtext.textContent = 'Dueling network • supervised from KRvK tablebase';
   }
+}
+
+function updateAgentMoveAnalysis(analysis) {
+  if (!analysis || Object.keys(analysis).length === 0) {
+    DOM.agentAnalysis.textContent = 'No solver/Q-value details for this move.';
+    return;
+  }
+  const details = [];
+  if (Number.isFinite(analysis.q_value)) {
+    details.push(`<strong>Q-value:</strong> ${analysis.q_value.toFixed(3)}`);
+  }
+  if (Number.isInteger(analysis.solver_dtm)) {
+    details.push(`<strong>Tablebase DTM:</strong> ${analysis.solver_dtm} plies`);
+    details.push(
+      `<strong>Move:</strong> ${analysis.optimal_move ? 'tablebase-optimal' : 'not optimal'}`
+    );
+  }
+  DOM.agentAnalysis.innerHTML = details.join('<br>') || 'No solver/Q-value details for this move.';
 }
 
 function handleGameOver(status) {
@@ -796,14 +824,81 @@ async function loadAnalysisData() {
       fetch('/api/summary'),
     ]);
 
-    const comparison = comparisonRes.ok ? await comparisonRes.json() : {};
-    const summary = summaryRes.ok ? await summaryRes.json() : {};
+    if (!comparisonRes.ok || !summaryRes.ok) {
+      throw new Error('Analysis data request failed.');
+    }
+    const comparison = await comparisonRes.json();
+    const summary = await summaryRes.json();
 
     renderBenchmarkTable(comparison, summary);
     renderRewardCharts(comparison);
     renderOutcomeBars(comparison, summary);
+    renderSolverModels(comparison.solver_models || []);
   } catch (err) {
     console.error('Failed to load analysis data:', err);
+    DOM.solverModelsTbody.innerHTML =
+      '<tr><td colspan="7" class="loading-cell">Could not load model comparison data.</td></tr>';
+  }
+}
+
+function renderSolverModels(models) {
+  const tbody = DOM.solverModelsTbody;
+  tbody.innerHTML = '';
+  models.forEach((model) => {
+    const validation = model.validation || {};
+    const evaluation = model.evaluation || {};
+    const percent = (value) => Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '—';
+    const tr = document.createElement('tr');
+    const cells = [
+      model.name,
+      model.checkpoint_available ? 'Checkpoint ready' : 'Not trained yet',
+      percent(validation.optimal_move_rate),
+      percent(validation.keeps_win_rate),
+      percent(validation.win_to_draw_rate),
+      percent(evaluation.vs_random?.win_rate),
+      percent(evaluation.vs_optimal?.win_rate),
+    ];
+    cells.forEach((value) => {
+      const td = document.createElement('td');
+      td.textContent = value;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  if (models.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">No Dueling Double-DQN checkpoints are configured.</td></tr>';
+  }
+}
+
+async function loadAgentOptions() {
+  try {
+    const response = await fetch('/api/agents', { cache: 'no-store' });
+    if (!response.ok) throw new Error('Could not retrieve available model checkpoints.');
+    const data = await response.json();
+    DOM.agentSelect.replaceChildren();
+    data.agents.forEach((agent) => {
+      if (agent.trained) state.trainedAgents.add(agent.name);
+      const option = document.createElement('option');
+      option.value = agent.name;
+      option.textContent = agent.trained
+        ? agent.name
+        : `${agent.name} — train checkpoint first`;
+      option.disabled = !agent.trained;
+      DOM.agentSelect.appendChild(option);
+    });
+    state.agentName = data.default_agent || '';
+    DOM.agentSelect.value = state.agentName;
+    DOM.btnNewGame.disabled = !state.agentName;
+    DOM.agentAvailability.textContent = state.agentName
+      ? 'Only trained checkpoints can be selected.'
+      : 'No trained checkpoints found. Train a model before starting a game.';
+    updateAgentInfoUI();
+  } catch (err) {
+    console.error('Failed to load model list:', err);
+    state.agentName = '';
+    DOM.agentAvailability.textContent = 'Could not check trained checkpoints; refresh the page or restart the server.';
+    DOM.btnNewGame.disabled = true;
+    updateAgentInfoUI();
   }
 }
 
@@ -962,25 +1057,36 @@ function renderOutcomeBars(comparison, summary) {
     const compData = comparison[name] || {};
     const metrics = compData.metrics || summary[name] || {};
 
-    const mate = metrics.checkmate_rate || 0;
-    const stale = metrics.stalemate_rate || 0;
-    const timeout = Math.max(0, 1 - (mate + stale));
-
-    const matePct = Math.round(mate * 100);
-    const stalePct = Math.round(stale * 100);
-    const timeoutPct = 100 - (matePct + stalePct);
+    const outcomes = [
+      { key: 'mate', label: 'Mate', value: metrics.checkmate_rate || 0, className: 'segment-mate' },
+      { key: 'stalemate', label: 'Stalemate', value: metrics.stalemate_rate || 0, className: 'segment-stalemate' },
+      { key: 'timeout', label: 'Timeout', value: metrics.timeout_rate || 0, className: 'segment-timeout' },
+      { key: 'loss', label: 'Loss', value: metrics.loss_rate || 0, className: 'segment-loss' },
+    ];
+    const total = outcomes.reduce((sum, outcome) => sum + outcome.value, 0);
+    const normalized = total > 0
+      ? outcomes.map((outcome) => ({
+        ...outcome,
+        percent: outcome.value / total * 100,
+      }))
+      : outcomes.map((outcome) => ({ ...outcome, percent: 0 }));
+    const summaryText = normalized
+      .map((outcome) => `${outcome.label}: ${outcome.value ? `${(outcome.value * 100).toFixed(1)}%` : '—'}`)
+      .join(' • ');
 
     const row = document.createElement('div');
     row.className = 'outcome-row';
     row.innerHTML = `
       <div class="outcome-label-row">
         <span><strong>${name}</strong></span>
-        <span>Mate: ${matePct}% • Stalemate: ${stalePct}% • 50-Move Cap: ${timeoutPct}%</span>
+        <span>${summaryText}</span>
       </div>
       <div class="outcome-bar-track">
-        <div class="outcome-segment segment-mate" style="width: ${matePct}%;" title="Checkmate: ${matePct}%">${matePct > 4 ? matePct + '%' : ''}</div>
-        <div class="outcome-segment segment-stalemate" style="width: ${stalePct}%;" title="Stalemate: ${stalePct}%">${stalePct > 4 ? stalePct + '%' : ''}</div>
-        <div class="outcome-segment segment-timeout" style="width: ${timeoutPct}%;" title="50-Move Timeout: ${timeoutPct}%">${timeoutPct > 4 ? timeoutPct + '%' : ''}</div>
+        ${normalized.map((outcome) => `
+          <div class="outcome-segment ${outcome.className}" style="width: ${outcome.percent}%;" title="${outcome.label}: ${(outcome.value * 100).toFixed(1)}%">
+            ${outcome.percent > 8 ? `${Math.round(outcome.percent)}%` : ''}
+          </div>
+        `).join('')}
       </div>
     `;
     container.appendChild(row);
@@ -1001,8 +1107,9 @@ function setupEventListeners() {
   // Agent selector
   DOM.agentSelect.addEventListener('change', (e) => {
     state.agentName = e.target.value;
+    DOM.btnNewGame.disabled = !state.agentName;
     updateAgentInfoUI();
-    startNewGame();
+    if (state.agentName) startNewGame();
   });
 
   // Hint
@@ -1061,6 +1168,7 @@ window.addEventListener('DOMContentLoaded', () => {
   setupNavigation();
   setupEventListeners();
   updateAgentInfoUI();
-  // Auto-start initial game session
-  startNewGame();
+  loadAgentOptions().then(() => {
+    if (state.agentName) startNewGame();
+  });
 });

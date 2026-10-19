@@ -26,20 +26,32 @@ class PotentialShaping:
         self.dtm_max = dtm_max
         self.enabled = enabled
 
-    def phi(self, dtm: int, is_terminal: bool = False) -> float:
+    def phi(
+        self,
+        dtm: int,
+        is_terminal: bool = False,
+        *,
+        wdl: int = 1,
+    ) -> float:
         """Potential function Phi(s) with boundary condition Phi(terminal) = 0."""
-        if not self.enabled or is_terminal or dtm < 0:
+        if not self.enabled or is_terminal or wdl != 1 or dtm < 0:
             return 0.0
         return self.c * (1.0 - min(dtm, self.dtm_max) / float(self.dtm_max))
 
     def shaping_reward(
-        self, dtm_s: int, dtm_next: int, is_terminal: bool = False
+        self,
+        dtm_s: int,
+        dtm_next: int,
+        is_terminal: bool = False,
+        *,
+        wdl_s: int = 1,
+        wdl_next: int = 1,
     ) -> float:
         """Compute F(s, s') = gamma * Phi(s') - Phi(s)."""
         if not self.enabled:
             return 0.0
-        phi_s = self.phi(dtm_s, is_terminal=False)
-        phi_next = self.phi(dtm_next, is_terminal=is_terminal)
+        phi_s = self.phi(dtm_s, is_terminal=False, wdl=wdl_s)
+        phi_next = self.phi(dtm_next, is_terminal=is_terminal, wdl=wdl_next)
         return self.gamma * phi_next - phi_s
 
 

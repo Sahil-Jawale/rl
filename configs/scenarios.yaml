@@ -13,6 +13,18 @@ scenarios:
       distance_reward: true
       edge_reward: true
       check_reward: 0.3
+  kqk:
+    white_pieces: [K, Q]
+    black_pieces: [K]
+    move_cap: 50
+    action_count: 4096
+    king_separation: 1
+    reward:
+      terminal_checkmate: 10.0
+      terminal_stalemate: -5.0
+      piece_captured: -8.0
+      step_cost: -0.02
+      check_reward: 0.3
   knk:
     white_pieces: [K, N]
     black_pieces: [K]

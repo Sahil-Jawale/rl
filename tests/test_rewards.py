@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import random
-import pytest
 
 from chess_endgame_rl.env.rewards import PotentialShaping
 
@@ -27,10 +26,16 @@ def test_potential_shaping_telescoping_identity():
             s_t = dtm_sequence[t]
             s_next = dtm_sequence[t + 1]
             is_terminal = (t + 1 == len(dtm_sequence) - 1)
-            f_t = shaper.shaping_reward(s_t, s_next, is_terminal=is_terminal)
+            f_t = shaper.shaping_reward(
+                s_t,
+                s_next,
+                is_terminal=is_terminal,
+                wdl_s=1,
+                wdl_next=1,
+            )
             total_discounted_shaping += (gamma ** t) * f_t
 
-        phi_s0 = shaper.phi(dtm_sequence[0], is_terminal=False)
+        phi_s0 = shaper.phi(dtm_sequence[0], is_terminal=False, wdl=1)
         expected = -phi_s0
 
         assert abs(total_discounted_shaping - expected) < 1e-9, (
@@ -42,3 +47,11 @@ def test_potential_shaping_disabled_returns_zero():
     shaper = PotentialShaping(enabled=False)
     assert shaper.phi(10) == 0.0
     assert shaper.shaping_reward(10, 9) == 0.0
+
+
+def test_potential_is_zero_for_draws_and_attacker_losses():
+    shaper = PotentialShaping()
+    assert shaper.phi(10, wdl=0) == 0.0
+    assert shaper.phi(10, wdl=-1) == 0.0
+    assert shaper.shaping_reward(10, 9, wdl_s=-1, wdl_next=-1) == 0.0
+    assert shaper.shaping_reward(10, -1, wdl_s=1, wdl_next=0) == -shaper.phi(10)

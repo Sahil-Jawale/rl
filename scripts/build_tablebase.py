@@ -5,18 +5,20 @@ import sys
 import time
 from pathlib import Path
 
+import chess
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from chess_endgame_rl.solver.tablebase import Tablebase, CACHE_DIR
+from chess_endgame_rl.solver.tablebase import Tablebase, tablebase_cache_path
 
 
 def build_and_save(kind: str) -> None:
     norm_kind = kind.upper()
     piece_name = "Q" if "Q" in norm_kind else "R"
-    filename = "kqk.npz" if piece_name == "Q" else "krk.npz"
-    out_path = CACHE_DIR / filename
+    piece_type = chess.QUEEN if piece_name == "Q" else chess.ROOK
+    out_path = tablebase_cache_path(piece_type)
 
     print(f"[{norm_kind}] Building exact retrograde tablebase for 3-piece endgame...")
     t0 = time.time()
@@ -24,14 +26,17 @@ def build_and_save(kind: str) -> None:
     elapsed = time.time() - t0
 
     # Validate metrics
-    legal_white = tb.legal[0::2].sum()
-    won_white = (tb.dtm[0::2] > 0).sum()
+    legal_states = int(tb.legal.sum())
+    decisive_states = int((tb.dtm[tb.legal] >= 0).sum())
+    decisive_fraction = decisive_states / max(legal_states, 1)
+    legal_white = int(tb.legal[0::2].sum())
+    won_white = int((tb.dtm[0::2] > 0).sum())
     max_dtm = tb.dtm.max()
-    win_rate = won_white / max(legal_white, 1)
 
     print(f"[{norm_kind}] Solved in {elapsed:.1f}s:")
-    print(f"  - Legal White states: {legal_white:,}")
-    print(f"  - Won White states:   {won_white:,} ({win_rate:.1%})")
+    print(f"  - Legal states:        {legal_states:,}")
+    print(f"  - Decisive W/L states: {decisive_states:,} ({decisive_fraction:.1%})")
+    print(f"  - White-to-move wins:  {won_white:,} / {legal_white:,}")
     print(f"  - Max DTM:            {max_dtm} plies ({max_dtm // 2} full moves)")
 
     tb.save(out_path)

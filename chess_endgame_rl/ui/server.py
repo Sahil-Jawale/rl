@@ -49,33 +49,138 @@ games: dict[str, dict] = {}
 
 # Loaded RL agents (lazy-loaded)
 _loaded_agents: dict[str, object] = {}
+_loaded_agent_mtimes: dict[str, int] = {}
+_loaded_krk_tablebase = None
 
 
 def _get_agent(agent_name: str):
     """Load a trained RL agent from disk (cached)."""
+    model_paths = {
+        "Dueling network (tablebase warm-start)": MODELS_DIR / "warmstart" / "krk.pt",
+        "Dueling Double DQN (fine-tuned)": MODELS_DIR / "rl" / "krk.pt",
+    }
+    if agent_name in model_paths:
+        path = model_paths[agent_name]
+        if not path.is_file():
+            return None
+        modified_ns = path.stat().st_mtime_ns
+        if (
+            agent_name in _loaded_agents
+            and _loaded_agent_mtimes.get(agent_name) == modified_ns
+        ):
+            return _loaded_agents[agent_name]
+
+        import torch
+
+        from chess_endgame_rl.models.dueling_net import DuelingNet
+
+        checkpoint = torch.load(path, map_location="cpu", weights_only=True)
+        model_config = checkpoint.get("model_config", {})
+        agent = DuelingNet(
+            in_channels=int(model_config.get("in_channels", 18)),
+            action_dim=int(model_config.get("action_dim", 4096)),
+            hidden_dim=int(model_config.get("hidden_dim", 256)),
+        )
+        state_dict = checkpoint.get("model_state_dict")
+        if state_dict is None:
+            raise ValueError(f"Checkpoint {path} has no model_state_dict.")
+        agent.load_state_dict(state_dict)
+        agent.eval()
+        _loaded_agents[agent_name] = agent
+        _loaded_agent_mtimes[agent_name] = modified_ns
+        return agent
+
     if agent_name in _loaded_agents:
         return _loaded_agents[agent_name]
 
     if agent_name == "Q-Learning":
         path = MODELS_DIR / "q_learning.json"
-        if path.exists():
+        if path.is_file():
             agent = TabularQAgent.load(path)
-            _loaded_agents[agent_name] = agent
-            return agent
-    elif agent_name == "DQN":
-        path = MODELS_DIR / "dqn.npz"
-        if path.exists():
-            agent = DeepQNetwork.load(path)
             _loaded_agents[agent_name] = agent
             return agent
     elif agent_name == "PPO":
         path = MODELS_DIR / "ppo.npz"
-        if path.exists():
+        if path.is_file():
             agent = PPOAgent.load(path)
             _loaded_agents[agent_name] = agent
             return agent
-
+    elif agent_name in ("DQN", "DQN (legacy)"):
+        path = MODELS_DIR / "dqn.npz"
+        if path.is_file():
+            agent = DeepQNetwork.load(path)
+            _loaded_agents[agent_name] = agent
+            return agent
     return None
+
+
+def _agent_catalog() -> list[dict[str, str | bool]]:
+    """Return the intentionally small, player-facing agent list."""
+    definitions = [
+        ("DQN", "Legacy DQN baseline", MODELS_DIR / "dqn.npz", "dqn"),
+        (
+            "Dueling network (tablebase warm-start)",
+            "Tablebase-supervised Dueling network",
+            MODELS_DIR / "warmstart" / "krk.pt",
+            "warmstart",
+        ),
+        (
+            "Dueling Double DQN (fine-tuned)",
+            "Warm-start checkpoint fine-tuned with Double DQN",
+            MODELS_DIR / "rl" / "krk.pt",
+            "rl",
+        ),
+    ]
+    agents = []
+    for name, description, path, kind in definitions:
+        agents.append(
+            {
+                "name": name,
+                "description": description,
+                "trained": path.is_file(),
+                "model_path": str(path),
+                "kind": kind,
+            }
+        )
+    return agents
+
+
+def _dueling_move(agent, board: chess.Board) -> tuple[chess.Move, dict]:
+    """Select a legal move and report its Q-value and available solver context."""
+    import torch
+
+    from chess_endgame_rl.env.encoding import encode_board, index_to_move, legal_mask
+
+    mask = legal_mask(board)
+    state = torch.as_tensor(encode_board(board), dtype=torch.float32).unsqueeze(0)
+    legal = torch.as_tensor(mask, dtype=torch.bool).unsqueeze(0)
+    with torch.inference_mode():
+        q_values, _, _ = agent(state, legal)
+    action = int(q_values.argmax(dim=1).item())
+    move = index_to_move(action, board)
+    if move not in board.legal_moves:
+        raise RuntimeError(f"Dueling Double DQN selected illegal action {action}.")
+    analysis: dict[str, object] = {"q_value": float(q_values[0, action].item())}
+
+    tablebase_path = PROJECT_ROOT / "data" / "tablebases" / "krk.npz"
+    if tablebase_path.is_file():
+        tablebase = _krk_tablebase()
+        wdl, dtm = tablebase.lookup(board)
+        if wdl == 1:
+            analysis["solver_dtm"] = dtm
+            analysis["optimal_move"] = move in tablebase.optimal_moves(board)
+    return move, analysis
+
+
+def _krk_tablebase():
+    global _loaded_krk_tablebase
+    from chess_endgame_rl.solver.tablebase import Tablebase
+
+    if _loaded_krk_tablebase is None:
+        _loaded_krk_tablebase = Tablebase.load(
+            PROJECT_ROOT / "data" / "tablebases" / "krk.npz"
+        )
+    return _loaded_krk_tablebase
 
 
 def _evaluate_krk(board: chess.Board, move_count: int = 0) -> dict:
@@ -200,7 +305,10 @@ def _generate_krk_position(seed: int | None = None) -> chess.Board:
 
 @app.get("/")
 def root():
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(
+        STATIC_DIR / "index.html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/health")
@@ -216,23 +324,27 @@ def list_scenarios_endpoint():
 
 @app.get("/api/agents")
 def list_agents():
-    """List available RL agents and their training status."""
-    agents = []
-    for name, path in [
-        ("Q-Learning", MODELS_DIR / "q_learning.json"),
-        ("DQN", MODELS_DIR / "dqn.npz"),
-        ("PPO", MODELS_DIR / "ppo.npz"),
-    ]:
-        agents.append({
-            "name": name,
-            "trained": path.exists(),
-            "model_path": str(path),
-        })
-    return {"agents": agents}
+    """List the DQN agents offered by the play UI and their checkpoint status."""
+    agents = _agent_catalog()
+    preferred = "Dueling network (tablebase warm-start)"
+    secondary = "Dueling Double DQN (fine-tuned)"
+    ready_names = [str(agent["name"]) for agent in agents if agent["trained"]]
+    default_agent = (
+        preferred
+        if preferred in ready_names
+        else secondary
+        if secondary in ready_names
+        else "DQN"
+        if "DQN" in ready_names
+        else ready_names[0]
+        if ready_names
+        else None
+    )
+    return {"agents": agents, "default_agent": default_agent}
 
 
 class NewGameRequest(BaseModel):
-    agent_name: str = "Q-Learning"
+    agent_name: str = "DQN"
     seed: int | None = None
 
 
@@ -253,7 +365,9 @@ def new_game(req: NewGameRequest):
     # Agent makes the first move (White)
     move_count = 0
     move_history = []
-    agent_move_uci = _agent_make_move(agent, req.agent_name, board, move_count)
+    agent_move_uci, agent_analysis = _agent_make_move(
+        agent, req.agent_name, board, move_count
+    )
     if agent_move_uci:
         agent_move = chess.Move.from_uci(agent_move_uci)
         agent_san = board.san(agent_move)
@@ -273,12 +387,14 @@ def new_game(req: NewGameRequest):
         "agent_name": req.agent_name,
         "move_count": move_count,
         "move_history": move_history,
+        "agent_analysis": agent_analysis,
     }
 
     state = _board_to_dict(board, move_count)
     state["game_id"] = game_id
     state["agent_name"] = req.agent_name
     state["agent_move"] = agent_move_uci
+    state["agent_analysis"] = agent_analysis
     state["move_history"] = games[game_id]["move_history"]
     return state
 
@@ -333,11 +449,14 @@ def make_move(req: MoveRequest):
         state["user_move"] = req.move_uci
         state["status"] = status
         state["move_history"] = game["move_history"]
+        state["agent_analysis"] = game.get("agent_analysis", {})
         return state
 
     # Agent responds (White move)
     agent = _get_agent(agent_name)
-    agent_move_uci = _agent_make_move(agent, agent_name, board, game["move_count"])
+    agent_move_uci, agent_analysis = _agent_make_move(
+        agent, agent_name, board, game["move_count"]
+    )
     if agent_move_uci:
         agent_move = chess.Move.from_uci(agent_move_uci)
         agent_san = board.san(agent_move)
@@ -352,10 +471,12 @@ def make_move(req: MoveRequest):
             "move_number": game["move_count"] // 2,
         })
 
+    game["agent_analysis"] = agent_analysis
     state = _board_to_dict(board, game["move_count"])
     state["game_id"] = req.game_id
     state["agent_name"] = agent_name
     state["agent_move"] = agent_move_uci
+    state["agent_analysis"] = agent_analysis
     state["user_move"] = req.move_uci
     state["move_history"] = game["move_history"]
     return state
@@ -441,6 +562,7 @@ def resign_game(req: ResignRequest):
     state["game_id"] = req.game_id
     state["agent_name"] = game["agent_name"]
     state["move_history"] = game["move_history"]
+    state["agent_analysis"] = game.get("agent_analysis", {})
     return state
 
 
@@ -459,30 +581,37 @@ def _check_game_status(board: chess.Board, move_count: int) -> str:
 
 def _agent_make_move(
     agent, agent_name: str, board: chess.Board, move_count: int = 0
-) -> str | None:
+) -> tuple[str | None, dict]:
     """Have the RL agent select and return a move in UCI format."""
     if board.turn != chess.WHITE:
-        return None
+        return None, {}
 
     legal_moves = list(board.legal_moves)
     if not legal_moves:
-        return None
+        return None, {}
     if agent is None:
         raise HTTPException(
             status_code=503,
             detail=f"{agent_name} model is unavailable. Train the model before starting a game.",
         )
 
+    analysis: dict = {}
+    if agent_name in (
+        "Dueling network (tablebase warm-start)",
+        "Dueling Double DQN (fine-tuned)",
+    ):
+        move, analysis = _dueling_move(agent, board)
+        return move.uci(), analysis
     if agent_name == "Q-Learning":
         action_id = agent.select_action_greedy(
             state_index(board), legal_action_mask(board, "krk")
         )
-    elif agent_name in ("DQN", "PPO"):
+    elif agent_name in ("DQN", "DQN (legacy)", "PPO"):
         obs = board_to_observation(board, "krk")
         move_frac = np.array([move_count / 100.0], dtype=np.float32)
         full_obs = np.concatenate([obs.astype(np.float32), move_frac])
         mask = legal_action_mask(board, "krk")
-        if agent_name == "DQN":
+        if agent_name in ("DQN", "DQN (legacy)"):
             action_id = agent.predict_greedy(full_obs, mask)
         else:
             action_id = agent.select_action_greedy(full_obs, mask)
@@ -492,7 +621,7 @@ def _agent_make_move(
     move = action_to_move(board, action_id)
     if move is None or move not in legal_moves:
         raise RuntimeError(f"{agent_name} selected an invalid action: {action_id}")
-    return move.uci()
+    return move.uci(), analysis
 
 
 # ======================================================================
@@ -550,6 +679,61 @@ def get_comparison():
                     "outcomes_history": data.get("outcomes_history", []),
                     "move_counts_history": data.get("move_counts_history", []),
                 }
+    solver_models = []
+    evaluation_path = RESULTS_DIR / "results.json"
+    evaluation = (
+        json.loads(evaluation_path.read_text(encoding="utf-8"))
+        if evaluation_path.is_file()
+        else {}
+    )
+    scenario_evaluation = evaluation.get("scenarios", {}).get("krk", {})
+    for name, checkpoint, run_metrics, evaluation_key in [
+        (
+            "Dueling network (tablebase warm-start)",
+            MODELS_DIR / "warmstart" / "krk.pt",
+            MODELS_DIR / "warmstart" / "krk.metrics.json",
+            "model",
+        ),
+        (
+            "Dueling Double DQN (fine-tuned)",
+            MODELS_DIR / "rl" / "krk.pt",
+            MODELS_DIR / "rl" / "krk.metrics.json",
+            "rl_model",
+        ),
+    ]:
+        training = (
+            json.loads(run_metrics.read_text(encoding="utf-8"))
+            if run_metrics.is_file()
+            else {}
+        )
+        validation = training.get("best_validation")
+        if validation is None and checkpoint.is_file():
+            import torch
+
+            checkpoint_data = torch.load(
+                checkpoint, map_location="cpu", weights_only=True
+            )
+            validation = checkpoint_data.get(
+                "validation_metrics", checkpoint_data.get("evaluation_metrics")
+            )
+        full_evaluation = scenario_evaluation.get("defenders", {})
+        solver_models.append(
+            {
+                "name": name,
+                "checkpoint_available": checkpoint.is_file(),
+                "training": training,
+                "validation": validation,
+                "evaluation": {
+                    "move_quality": scenario_evaluation.get(
+                        "rl_move_quality" if evaluation_key == "rl_model" else "move_quality"
+                    ),
+                    "vs_random": full_evaluation.get("random", {}).get(evaluation_key),
+                    "vs_optimal": full_evaluation.get("optimal", {}).get(evaluation_key),
+                    "protocol_version": evaluation.get("protocol_version"),
+                },
+            }
+        )
+    comparison["solver_models"] = solver_models
     return comparison
 
 

@@ -10,15 +10,35 @@ Total states: 64 * 64 * 64 * 2 = 524,288.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Any
 
 import chess
 import numpy as np
 
 
 CACHE_DIR = Path(__file__).resolve().parents[2] / "data" / "tablebases"
+SOLVER_VERSION = 1
+
+
+def tablebase_cache_path(piece_type: int) -> Path:
+    """Return the cache path keyed by endgame material and solver version."""
+    if piece_type == chess.QUEEN:
+        kind = "kqk"
+    elif piece_type == chess.ROOK:
+        kind = "krk"
+    else:
+        raise ValueError(f"Unsupported tablebase attacker piece type: {piece_type}")
+    return CACHE_DIR / f"{kind}-v{SOLVER_VERSION}.npz"
+
+
+def existing_tablebase_cache_path(piece_type: int) -> Path:
+    """Prefer a versioned cache, while accepting pre-versioned v1 repository caches."""
+    versioned = tablebase_cache_path(piece_type)
+    if versioned.exists():
+        return versioned
+    legacy_name = "kqk.npz" if piece_type == chess.QUEEN else "krk.npz"
+    legacy = CACHE_DIR / legacy_name
+    return legacy if legacy.exists() else versioned
 
 
 def state_to_id(wk: int, bk: int, piece_sq: int, stm: int) -> int:
@@ -41,10 +61,30 @@ def board_to_state_id(board: chess.Board, piece_type: int) -> int | None:
     """Map a chess.Board with 3 pieces (wK, bK, wPiece) to its state index."""
     wk = board.king(chess.WHITE)
     bk = board.king(chess.BLACK)
-    pieces = list(board.pieces(piece_type, chess.WHITE))
-    if wk is None or bk is None or not pieces:
+    attacker_pieces = [
+        piece
+        for piece in board.piece_map().values()
+        if piece.color == chess.WHITE and piece.piece_type != chess.KING
+    ]
+    defender_pieces = [
+        piece
+        for piece in board.piece_map().values()
+        if piece.color == chess.BLACK and piece.piece_type != chess.KING
+    ]
+    if (
+        wk is None
+        or bk is None
+        or len(board.piece_map()) != 3
+        or len(attacker_pieces) != 1
+        or attacker_pieces[0].piece_type != piece_type
+        or defender_pieces
+    ):
         return None
-    piece_sq = pieces[0]
+    piece_sq = next(
+        square
+        for square, piece in board.piece_map().items()
+        if piece.color == chess.WHITE and piece.piece_type == piece_type
+    )
     stm = 0 if board.turn == chess.WHITE else 1
     return state_to_id(wk, bk, piece_sq, stm)
 
@@ -52,10 +92,17 @@ def board_to_state_id(board: chess.Board, piece_type: int) -> int | None:
 class Tablebase:
     """Retrograde analysis tablebase for 3-piece chess endgames."""
 
-    def __init__(self, piece_type: int, dtm: np.ndarray, legal: np.ndarray):
+    def __init__(
+        self,
+        piece_type: int,
+        dtm: np.ndarray,
+        legal: np.ndarray,
+        solver_version: int = SOLVER_VERSION,
+    ):
         self.piece_type = piece_type
         self.dtm = dtm  # Shape (524288,), int16. -1 = Draw/unsolved, >= 0 = DTM in plies
         self.legal = legal  # Shape (524288,), bool
+        self.solver_version = solver_version
 
     @classmethod
     def solve(cls, piece_name: str = "Q") -> Tablebase:
@@ -181,16 +228,35 @@ class Tablebase:
             dtm=self.dtm,
             legal=self.legal,
             piece_type=int(self.piece_type),
+            solver_version=self.solver_version,
         )
 
     @classmethod
     def load(cls, path: Path | str) -> Tablebase:
         """Load tablebase arrays from a compressed npz file."""
-        data = np.load(str(path))
+        with np.load(str(path), allow_pickle=False) as data:
+            solver_version = (
+                int(data["solver_version"])
+                if "solver_version" in data
+                else 1
+            )
+            if solver_version != SOLVER_VERSION:
+                raise ValueError(
+                    f"Tablebase cache {path} uses solver version {solver_version}; "
+                    f"current version is {SOLVER_VERSION}."
+                )
+            dtm = data["dtm"]
+            legal = data["legal"]
+            piece_type = int(data["piece_type"])
+        if dtm.shape != (524288,) or legal.shape != (524288,):
+            raise ValueError(f"Tablebase cache {path} has invalid array dimensions.")
+        if piece_type not in (chess.QUEEN, chess.ROOK):
+            raise ValueError(f"Tablebase cache {path} has unsupported piece type {piece_type}.")
         return cls(
-            piece_type=int(data["piece_type"]),
-            dtm=data["dtm"],
-            legal=data["legal"],
+            piece_type=piece_type,
+            dtm=dtm,
+            legal=legal,
+            solver_version=solver_version,
         )
 
     def lookup(self, board: chess.Board) -> tuple[int, int]:

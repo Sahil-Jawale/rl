@@ -170,6 +170,8 @@ class PPOAgent:
         dones: list[bool],
         log_probs: list[float],
         legal_masks: list[np.ndarray | None],
+        terminateds: list[bool] | None = None,
+        next_states: list[np.ndarray] | None = None,
     ) -> dict[str, float]:
         """Update policy and value networks using PPO.
         
@@ -177,9 +179,11 @@ class PPOAgent:
             states: List of observation vectors from the trajectory.
             actions: List of actions taken.
             rewards: List of rewards received.
-            dones: List of done flags.
+            dones: Episode-boundary flags, including horizon truncations.
             log_probs: List of log probabilities of actions taken.
             legal_masks: List of legal action masks.
+            terminateds: True only for terminal states; truncations still bootstrap.
+            next_states: Successor states used to bootstrap each transition.
         
         Returns:
             Dictionary with training metrics (policy_loss, value_loss, entropy).
@@ -197,17 +201,35 @@ class PPOAgent:
         for s in states:
             values.append(self.get_value(s))
         values = np.array(values, dtype=np.float32)
+        terminal_flags = np.asarray(
+            dones if terminateds is None else terminateds, dtype=np.float32
+        )
+        if terminal_flags.shape != (n,):
+            raise ValueError("terminateds must have one flag per transition.")
+        next_values = None
+        if next_states is not None:
+            if len(next_states) != n:
+                raise ValueError("next_states must have one state per transition.")
+            next_values = np.asarray(
+                [self.get_value(state) for state in next_states], dtype=np.float32
+            )
 
         # Bootstrap value for last state
         advantages = np.zeros(n, dtype=np.float32)
         returns = np.zeros(n, dtype=np.float32)
         gae = 0.0
         for t in reversed(range(n)):
-            if dones[t] or t == n - 1:
+            if next_values is not None:
+                next_value = next_values[t]
+            elif dones[t] or t == n - 1:
                 next_value = 0.0
             else:
                 next_value = values[t + 1]
-            delta = rewards[t] + self.gamma * next_value * (1 - float(dones[t])) - values[t]
+            delta = (
+                rewards[t]
+                + self.gamma * next_value * (1 - terminal_flags[t])
+                - values[t]
+            )
             gae = delta + self.gamma * self.gae_lambda * (1 - float(dones[t])) * gae
             advantages[t] = gae
             returns[t] = advantages[t] + values[t]

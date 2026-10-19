@@ -1,0 +1,42 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install project and training dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[train]" ruff
+      - name: Lint new learning and evaluation modules
+        run: >-
+          ruff check --select E4,F
+          chess_endgame_rl/agents/dueling_ddqn.py
+          chess_endgame_rl/agents/rl_finetuning.py
+          chess_endgame_rl/eval/evaluate_all.py
+          chess_endgame_rl/seed.py
+          chess_endgame_rl/warmstart
+          scripts/finetune_ddqn.py
+          scripts/pipeline.py
+          scripts/regression_check.py
+      - name: Run tests
+        run: python -m pytest -q
+      - name: Check performance regression when a reviewed baseline is present
+        if: hashFiles('results/baseline.json') != '' && hashFiles('models/warmstart/krk.pt') != ''
+        run: >-
+          python scripts/regression_check.py
+          --checkpoint models/warmstart/krk.pt
+          --scenario krk
+          --baseline results/baseline.json

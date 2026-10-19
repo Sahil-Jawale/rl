@@ -185,12 +185,29 @@ An audit of the `chess_endgame_rl` package was conducted against the 8 defect cl
 
 ---
 
-## Action Plan for Phase 1 Fixes
+## Original Action Plan for Phase 1 Fixes
 
 1. **Add `test_audit_regressions.py`** defining tests for each failed item:
    * Test Double-DQN target calculation logic vs standard DQN.
    * Test `terminated` vs `truncated` separation in `EndgameEnv`.
-   * Test reward shaping (no stall-farming, non-zero center-distance delta).
+   * Test reward behavior (no stall-farming; remove the dead center-distance term).
    * Test reachability of distance-2 king positions.
 2. **Apply targeted fixes** in `chess_endgame_rl/env/endgame_env.py`, `chess_endgame_rl/agents/dqn.py`, and `configs/scenarios.yaml`.
 3. Verify all tests pass with `pytest -q`.
+
+## Re-audit against the updated specification
+
+The findings above describe the pre-fix audit. The following is the current status after rechecking Phases 1–3 and implementing the learning and evaluation pipeline:
+
+| Requirement | Current status | Evidence |
+|---|---|---|
+| Dueling legal-action advantage mean | Implemented in the new `DuelingNet`; the legacy NumPy DQN remains a separate baseline. | `chess_endgame_rl/models/dueling_net.py`; `tests/test_warmstart.py` |
+| Legal-masked Double-DQN target | Implemented. The replay stores the successor-state mask; online argmax is masked before the target network evaluates the selected action. | `chess_endgame_rl/agents/dqn.py`; `chess_endgame_rl/train.py`; `tests/test_audit_regressions.py` |
+| Perspective and action encoding | 18-plane canonical encoding and 4096-index actions are available; round-trip coverage now uses 10,000 random legal positions. Existing compact KRK/KNK baselines remain intact. | `chess_endgame_rl/env/encoding.py`; `tests/test_encoding.py` |
+| Termination vs truncation | Environment reports both flags. Q-Learning and DQN bootstrap on truncation; PPO receives successor states and masks GAE continuation at episode boundaries while bootstrapping the truncated transition. | `chess_endgame_rl/env/endgame_env.py`; `chess_endgame_rl/train.py`; `chess_endgame_rl/agents/ppo.py`; `tests/test_audit_regressions.py` |
+| Reward shaping | The inactive Black-king-distance calculation was removed; it compared the same king square before and after White's move. RL fine-tuning applies `gamma * Phi(s') - Phi(s)` using the tablebase WDL/DTM; `Phi` is nonzero only for nonterminal attacker-winning states, and the telescoping identity and zero-potential draw/loss behavior are tested. The legacy environment reward path remains separate. | `chess_endgame_rl/agents/rl_finetuning.py`; `chess_endgame_rl/env/rewards.py`; `tests/test_rewards.py` |
+| Reachable-state sampling and horizon | The configured king separation is 1 (kings may be at legal distance 2); the 100-ply KRK horizon exceeds the solver's 32-ply maximum DTM. | `configs/scenarios.yaml`; `chess_endgame_rl/env/endgame_env.py`; `tests/test_audit_regressions.py` |
+| Exact tablebase and optimal defender | KQvK and KRvK caches are present. KQvK has 368,452 legal states, 93.7446% decisive states, and max DTM 20; KRvK max DTM is 32. New caches are keyed by endgame and solver version; the defender now selects from the matching tablebase, and `kqk` is registered with the 4096-action encoding. | `chess_endgame_rl/solver/tablebase.py`; `chess_endgame_rl/env/defenders.py`; `configs/scenarios.yaml`; `tests/test_tablebase.py`; `tests/test_environment.py` |
+| Supervised warm start | The lazy solver-labelled dataset, position-level deterministic split, both requested losses, and best-checkpoint trainer are implemented. Only a small trainer smoke test has run; full held-out metrics remain outstanding. | `chess_endgame_rl/warmstart/`; `tests/test_warmstart.py` |
+
+Phase 4 learning components and the Phase 5 evaluation tooling are implemented. They have not yet produced full warm-start/RL checkpoints or protocol-level evaluation results, so acceptance targets remain unverified. The optional Syzygy cross-check has not been run.

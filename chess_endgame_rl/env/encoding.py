@@ -67,6 +67,14 @@ def move_to_action_id(board: chess.Board, move: chess.Move) -> int | None:
     if piece is None:
         return None
 
+    # KQvK uses the universal 4096-action encoding; retain the compact
+    # scenario-specific encodings for the existing KRK and KNK baselines.
+    if any(
+        candidate.color == chess.WHITE and candidate.piece_type == chess.QUEEN
+        for candidate in board.piece_map().values()
+    ):
+        return move.from_square * 64 + move.to_square
+
     delta = _relative_target(move.from_square, move.to_square)
 
     if piece.piece_type == chess.KING:
@@ -237,6 +245,9 @@ def move_to_index(move: chess.Move, perspective: chess.Color = chess.WHITE) -> i
     Formula: from_sq * 64 + to_sq.
     If perspective is BLACK, the move squares are mirrored vertically.
     """
+    if move.promotion is not None and move.promotion != chess.QUEEN:
+        raise ValueError("Only queen promotions are supported by the action encoding.")
+
     from_sq = move.from_square
     to_sq = move.to_square
     if perspective == chess.BLACK:
@@ -275,4 +286,3 @@ def legal_mask(board: chess.Board) -> np.ndarray:
         idx = move_to_index(move, perspective=board.turn)
         mask[idx] = True
     return mask
-

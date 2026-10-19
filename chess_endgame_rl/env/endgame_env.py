@@ -8,8 +8,8 @@ State, Action, Reward, Environment formulation:
 - **State**: 192-dim one-hot vector (3 planes × 64 squares) encoding positions
   of White King, White Rook, and Black King, plus a scalar for move count.
 - **Action**: 36 discrete actions (8 king moves + 28 rook moves along ranks/files).
-- **Reward**: Dense shaped reward combining checkmate bonus, stalemate penalty,
-  distance-to-edge reward, king-proximity reward, and per-step cost.
+- **Reward**: Checkmate bonus, stalemate penalty, king-proximity reward,
+  and per-step cost.
 - **Environment**: Turn-based; agent makes a White move, then a defender policy
   responds with a Black move. Episode ends on checkmate, stalemate, or 50 moves.
 """
@@ -101,7 +101,11 @@ class EndgameEnv:
         if chosen_move is None or chosen_move not in legal_moves:
             # Invalid action → large penalty and episode ends
             self.done = True
-            return self._observation(), -10.0, True, {"reason": "illegal_move"}
+            return self._observation(), -10.0, True, {
+                "reason": "illegal_move",
+                "terminated": True,
+                "truncated": False,
+            }
 
         board_before = self.board.copy()
         self.board.push(chosen_move)
@@ -280,8 +284,7 @@ class EndgameEnv:
         2. Terminal stalemate: -5.0 (severe penalty — stalemate is a draw)
         3. Step cost: -0.02 per move (encourages faster checkmate)
         4. Check bonus: +0.3 for giving check
-        5. Distance shaping: reward for pushing Black King toward edges/corners
-        6. King proximity: reward for moving White King closer to support mate
+        5. King proximity: reward for moving White King closer to support mate
         """
         reward_cfg = self.scenario.get("reward", {})
         reward = float(reward_cfg.get("step_cost", -0.02))
@@ -315,22 +318,11 @@ class EndgameEnv:
         if board_after.is_check():
             reward += float(reward_cfg.get("check_reward", 0.3))
 
-        # --- Reward shaping: push Black King to edges ---
-        bk_before = board_before.king(chess.BLACK)
+        # The Black king does not move during this step, so edge shaping here
+        # would always be zero. Solver-based shaping is not applied here.
         bk_after = board_after.king(chess.BLACK)
         wk_before = board_before.king(chess.WHITE)
         wk_after = board_after.king(chess.WHITE)
-
-        if bk_before is not None and bk_after is not None:
-            # Center distance: how far is Black King from center (higher = better for White)
-            def center_distance(sq: int) -> float:
-                r, f = chess.square_rank(sq), chess.square_file(sq)
-                return max(abs(r - 3.5), abs(f - 3.5))
-
-            cd_before = center_distance(bk_before)
-            cd_after = center_distance(bk_after)
-            # Reward for pushing Black King further from center
-            reward += (cd_after - cd_before) * 0.15
 
         # King proximity: White King should approach Black King for mating
         if wk_before is not None and wk_after is not None and bk_after is not None:

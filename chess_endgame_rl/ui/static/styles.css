@@ -791,6 +791,28 @@ body {
   padding: 8px 12px;
 }
 
+.form-help {
+  margin-top: 7px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.agent-analysis {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-subtle);
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.agent-analysis strong {
+  color: var(--text-primary);
+}
+
 .match-actions-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -823,6 +845,13 @@ body {
 .btn-primary:hover {
   background-color: var(--color-green-hover);
   transform: translateY(-1px);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 .btn-secondary {
@@ -1363,6 +1392,7 @@ body {
 .segment-mate { background-color: var(--color-green); }
 .segment-stalemate { background-color: var(--color-gold); }
 .segment-timeout { background-color: #4b5563; }
+.segment-loss { background-color: var(--color-red); }
 
 /* Findings */
 .findings-grid {

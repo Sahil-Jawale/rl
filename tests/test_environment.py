@@ -9,8 +9,9 @@ from chess_endgame_rl.eval.suite import summarize_game_results, tablebase_status
 
 def test_scenarios_are_registered():
     assert set(get_scenario("krk").keys()) >= {"move_cap", "action_count"}
+    assert set(get_scenario("kqk").keys()) >= {"move_cap", "action_count"}
     assert set(get_scenario("knk").keys()) >= {"move_cap", "action_count"}
-    assert list_scenarios() == ["krk", "knk"]
+    assert list_scenarios() == ["krk", "kqk", "knk"]
 
 
 def test_environment_generates_valid_board():
@@ -28,6 +29,20 @@ def test_action_round_trip_for_king_and_rook():
     action_id = move_to_action_id(board, move)
     assert action_id is not None
     assert action_to_move(board, action_id) == move
+
+
+def test_kqk_scenario_uses_the_4096_action_encoding():
+    env = EndgameEnv("kqk", seed=42, defender="optimal")
+    assert env.action_count == 4096
+    assert env.board is not None
+    mask = env.legal_action_mask()
+    assert mask.shape == (4096,)
+    assert int(mask.sum()) == env.board.legal_moves.count()
+
+    for move in env.board.legal_moves:
+        action_id = move_to_action_id(env.board, move)
+        assert action_id == move.from_square * 64 + move.to_square
+        assert action_to_move(env.board, action_id) == move
 
 
 def test_knight_actions_do_not_overlap_king_actions():

@@ -1,0 +1,73 @@
+{
+  "output_checkpoint": "C:\\Users\\abhis\\OneDrive\\Desktop\\rl\\models\\rl\\krk.pt",
+  "warmstart_checkpoint": "C:\\Users\\abhis\\OneDrive\\Desktop\\rl\\models\\warmstart\\krk.pt",
+  "seed": 7,
+  "episodes_completed": 79,
+  "environment_steps": 1000,
+  "potential_shaping": true,
+  "config": {
+    "episodes": 250,
+    "defender": "optimal",
+    "max_plies": 100,
+    "gamma": 0.99,
+    "learning_rate": 0.0001,
+    "epsilon": 0.05,
+    "anchor_weight": 0.1,
+    "batch_size": 64,
+    "target_update_frequency": 1000,
+    "replay_capacity": 50000,
+    "eval_every_steps": 250,
+    "eval_positions": 256,
+    "early_stop_patience": 3,
+    "validation_fraction": 0.1,
+    "seed": 7,
+    "device": "cpu"
+  },
+  "runtime_seconds": 200.19054610002786,
+  "hardware": "Windows-11-10.0.26200-SP0",
+  "torch_version": "2.14.1+cpu",
+  "best_validation": {
+    "positions": 256,
+    "optimal_move_rate": 0.9375,
+    "suboptimal_move_rate": 0.0625,
+    "win_to_draw_rate": 0.0078125
+  },
+  "history": [
+    {
+      "episode": 19,
+      "environment_steps": 250,
+      "potential_shaping": true,
+      "positions": 256,
+      "optimal_move_rate": 0.9375,
+      "suboptimal_move_rate": 0.0625,
+      "win_to_draw_rate": 0.0078125
+    },
+    {
+      "episode": 34,
+      "environment_steps": 500,
+      "potential_shaping": true,
+      "positions": 256,
+      "optimal_move_rate": 0.8984375,
+      "suboptimal_move_rate": 0.1015625,
+      "win_to_draw_rate": 0.00390625
+    },
+    {
+      "episode": 56,
+      "environment_steps": 750,
+      "potential_shaping": true,
+      "positions": 256,
+      "optimal_move_rate": 0.84765625,
+      "suboptimal_move_rate": 0.15234375,
+      "win_to_draw_rate": 0.01171875
+    },
+    {
+      "episode": 79,
+      "environment_steps": 1000,
+      "potential_shaping": true,
+      "positions": 256,
+      "optimal_move_rate": 0.75390625,
+      "suboptimal_move_rate": 0.24609375,
+      "win_to_draw_rate": 0.0234375
+    }
+  ]
+}

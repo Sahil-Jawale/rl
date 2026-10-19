@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from chess_endgame_rl.agents.dqn import DeepQNetwork
+from chess_endgame_rl.agents.ppo import PPOAgent
 from chess_endgame_rl.env import EndgameEnv, get_scenario
 
 
@@ -53,8 +54,82 @@ def test_edge_stalling_does_not_net_positive_reward():
 
 def test_double_dqn_target_uses_online_argmax():
     """Item 2: Double-DQN target must evaluate Q_target at argmax_{a in LEGAL} Q_online."""
-    agent = DeepQNetwork(input_dim=10, output_dim=4, batch_size=2)
-    # Verify agent has Double-DQN target computation capability
-    assert hasattr(agent, "compute_target_q") or hasattr(agent, "use_double_dqn"), (
-        "Agent must implement Double-DQN decoupled target calculation"
+    agent = DeepQNetwork(
+        input_dim=10, output_dim=4, batch_size=2, gamma=0.5, use_double_dqn=True
     )
+    online_next = np.array([[10.0, 999.0, 5.0, 1000.0]], dtype=np.float32)
+    target_next = np.array([[3.0, 10000.0, 70.0, 12000.0]], dtype=np.float32)
+    agent._forward = lambda states, use_target=False: (
+        np.empty((1, 1)),
+        np.empty((1, 1)),
+        target_next if use_target else online_next,
+    )
+
+    target_q = agent.compute_target_q(
+        current_q=np.zeros((1, 4), dtype=np.float32),
+        actions=np.array([0]),
+        rewards=np.array([1.0], dtype=np.float32),
+        next_states=np.zeros((1, 10), dtype=np.float32),
+        terminated=np.array([False]),
+        legal_masks=np.array([[1, 0, 1, 0]], dtype=np.int8),
+    )
+    # Online selects legal action 0; target evaluates action 0, not its own
+    # preferred action 2 or either illegal action.
+    assert target_q[0, 0] == pytest.approx(2.5)
+
+
+def test_truncation_bootstraps_but_true_termination_does_not():
+    agent = DeepQNetwork(
+        input_dim=2, output_dim=2, batch_size=1, gamma=0.9, use_double_dqn=True
+    )
+    agent._forward = lambda states, use_target=False: (
+        np.empty((1, 1)),
+        np.empty((1, 1)),
+        np.array([[0.0, 4.0]], dtype=np.float32),
+    )
+    common = {
+        "current_q": np.zeros((1, 2), dtype=np.float32),
+        "actions": np.array([0]),
+        "rewards": np.array([1.0], dtype=np.float32),
+        "next_states": np.zeros((1, 2), dtype=np.float32),
+        "legal_masks": np.array([[0, 1]], dtype=np.int8),
+    }
+
+    truncated_target = agent.compute_target_q(
+        **common, terminated=np.array([False])
+    )
+    terminal_target = agent.compute_target_q(
+        **common, terminated=np.array([True])
+    )
+    assert truncated_target[0, 0] == pytest.approx(4.6)
+    assert terminal_target[0, 0] == pytest.approx(1.0)
+
+
+def test_ppo_bootstraps_at_truncation_boundary():
+    agent = PPOAgent(
+        input_dim=1,
+        output_dim=2,
+        hidden1=4,
+        hidden2=4,
+        n_epochs=1,
+        mini_batch_size=1,
+    )
+    agent.gamma = 0.9
+    agent.get_value = lambda state: 2.0 if state[0] == 0.0 else 4.0
+    captured_returns = []
+    agent._ppo_step = lambda states, actions, old_log_probs, advantages, returns, masks: (
+        captured_returns.extend(returns.tolist()) or (0.0, 0.0, 0.0)
+    )
+
+    agent.update(
+        states=[np.array([0.0], dtype=np.float32)],
+        actions=[0],
+        rewards=[1.0],
+        dones=[True],
+        log_probs=[0.0],
+        legal_masks=[np.array([1, 1], dtype=np.int8)],
+        terminateds=[False],
+        next_states=[np.array([1.0], dtype=np.float32)],
+    )
+
+    assert captured_returns == pytest.approx([4.6])

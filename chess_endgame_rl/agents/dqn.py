@@ -25,7 +25,7 @@ import numpy as np
 class ReplayBuffer:
     """Circular experience replay buffer for DQN training.
     
-    Stores (state, action, reward, next_state, done, legal_mask) transitions
+    Stores (state, action, reward, next_state, terminated, next_legal_mask) transitions
     and provides random mini-batch sampling for stable gradient updates.
     """
 
@@ -34,15 +34,15 @@ class ReplayBuffer:
         self.buffer: list[tuple] = []
         self.position = 0
 
-    def push(self, state, action, reward, next_state, done, legal_mask):
+    def push(self, state, action, reward, next_state, terminated, next_legal_mask):
         """Add a transition to the buffer."""
         record = (
             np.asarray(state, dtype=np.float32).copy(),
             int(action),
             float(reward),
             np.asarray(next_state, dtype=np.float32).copy(),
-            bool(done),
-            np.asarray(legal_mask, dtype=np.int8).copy(),
+            bool(terminated),
+            np.asarray(next_legal_mask, dtype=np.int8).copy(),
         )
         if len(self.buffer) < self.capacity:
             self.buffer.append(record)
@@ -61,9 +61,9 @@ class ReplayBuffer:
         actions = np.array([item[1] for item in batch], dtype=np.int64)
         rewards = np.array([item[2] for item in batch], dtype=np.float32)
         next_states = np.stack([item[3] for item in batch])
-        dones = np.array([item[4] for item in batch], dtype=np.float32)
+        terminated = np.array([item[4] for item in batch], dtype=np.float32)
         legal_masks = np.stack([item[5] for item in batch])
-        return states, actions, rewards, next_states, dones, legal_masks
+        return states, actions, rewards, next_states, terminated, legal_masks
 
     def __len__(self):
         return len(self.buffer)
@@ -198,7 +198,7 @@ class DeepQNetwork:
         actions: np.ndarray,
         rewards: np.ndarray,
         next_states: np.ndarray,
-        dones: np.ndarray,
+        terminated: np.ndarray,
         legal_masks: np.ndarray,
     ) -> np.ndarray:
         """Compute target Q-values using Double-DQN (decoupled) or standard DQN.
@@ -213,7 +213,7 @@ class DeepQNetwork:
         if self.use_double_dqn:
             _, _, next_q_online = self._forward(next_states, use_target=False)
             for i in range(len(current_q)):
-                if dones[i]:
+                if terminated[i]:
                     target_q[i, actions[i]] = rewards[i]
                 else:
                     masked_online = next_q_online[i].copy()
@@ -224,22 +224,22 @@ class DeepQNetwork:
             for i in range(len(current_q)):
                 masked_target = next_q_target[i].copy()
                 masked_target[legal_masks[i] == 0] = -1e9
-                if dones[i]:
+                if terminated[i]:
                     target_q[i, actions[i]] = rewards[i]
                 else:
                     target_q[i, actions[i]] = rewards[i] + self.gamma * np.max(masked_target)
         return target_q
 
-    def update(self, state, action, reward, next_state, done, legal_mask=None):
+    def update(self, state, action, reward, next_state, terminated, legal_mask=None):
         """Store transition and train on a mini-batch from replay buffer."""
         if legal_mask is None:
             legal_mask = np.ones(self.output_dim, dtype=np.int8)
-        self.replay_buffer.push(state, action, reward, next_state, done, legal_mask)
+        self.replay_buffer.push(state, action, reward, next_state, terminated, legal_mask)
 
         if len(self.replay_buffer) < self.batch_size:
             return
 
-        states, actions, rewards, next_states, dones, legal_masks = \
+        states, actions, rewards, next_states, terminated, legal_masks = \
             self.replay_buffer.sample(self.batch_size)
 
         # Forward pass
@@ -247,7 +247,7 @@ class DeepQNetwork:
 
         # Compute target Q-values with Double-DQN
         target_q = self.compute_target_q(
-            current_q, actions, rewards, next_states, dones, legal_masks
+            current_q, actions, rewards, next_states, terminated, legal_masks
         )
 
         # Backpropagation (gradient descent)

@@ -149,9 +149,14 @@ def train_q_learning(
             action = agent.select_action(state, legal_mask)
             _, reward, done, info = env.step(action)
             next_state = _env_state_index(env)
-            next_mask = env.legal_action_mask() if not done else np.zeros(env.action_count, dtype=np.int8)
+            terminated = bool(info.get("terminated", done))
+            next_mask = (
+                env.legal_action_mask()
+                if not terminated
+                else np.zeros(env.action_count, dtype=np.int8)
+            )
 
-            agent.update(state, action, reward, next_state, done, next_mask)
+            agent.update(state, action, reward, next_state, terminated, next_mask)
             episode_reward += reward
             state = next_state
             legal_mask = next_mask
@@ -259,9 +264,14 @@ def train_dqn(
         for _ in range(100):
             action = agent.predict(obs, legal_mask)
             next_obs, reward, done, info = env.step(action)
-            next_mask = env.legal_action_mask() if not done else np.zeros(env.action_count, dtype=np.int8)
+            terminated = bool(info.get("terminated", done))
+            next_mask = (
+                env.legal_action_mask()
+                if not terminated
+                else np.zeros(env.action_count, dtype=np.int8)
+            )
 
-            agent.update(obs, action, reward, next_obs, done, next_mask)
+            agent.update(obs, action, reward, next_obs, terminated, next_mask)
             episode_reward += reward
             obs = next_obs
             legal_mask = next_mask
@@ -354,7 +364,7 @@ def train_ppo(
     start_time = time.time()
 
     trajectory_size = 10
-    batch_trajectories: list[list] = [[] for _ in range(6)]
+    batch_trajectories: list[list] = [[] for _ in range(8)]
 
     for episode in range(episodes):
         obs = env.reset(seed=seed + episode)
@@ -367,18 +377,27 @@ def train_ppo(
         traj_actions = []
         traj_rewards = []
         traj_dones = []
+        traj_terminateds = []
+        traj_next_states = []
         traj_log_probs = []
         traj_masks = []
 
         for _ in range(100):
             action, log_prob = agent.select_action(obs, legal_mask)
             next_obs, reward, done, info = env.step(action)
-            next_mask = env.legal_action_mask() if not done else np.zeros(env.action_count, dtype=np.int8)
+            terminated = bool(info.get("terminated", done))
+            next_mask = (
+                env.legal_action_mask()
+                if not terminated
+                else np.zeros(env.action_count, dtype=np.int8)
+            )
 
             traj_states.append(obs.copy())
             traj_actions.append(action)
             traj_rewards.append(reward)
             traj_dones.append(done)
+            traj_terminateds.append(terminated)
+            traj_next_states.append(next_obs.copy())
             traj_log_probs.append(log_prob)
             traj_masks.append(legal_mask.copy())
 
@@ -393,12 +412,13 @@ def train_ppo(
             episode_trajectory = (
                 traj_states, traj_actions, traj_rewards,
                 traj_dones, traj_log_probs, traj_masks,
+                traj_terminateds, traj_next_states,
             )
             for batch, episode_data in zip(batch_trajectories, episode_trajectory):
                 batch.extend(episode_data)
             if (episode + 1) % trajectory_size == 0 or episode + 1 == episodes:
                 agent.update(*batch_trajectories)
-                batch_trajectories = [[] for _ in range(6)]
+                batch_trajectories = [[] for _ in range(8)]
 
         rewards_history.append(episode_reward)
         outcomes_history.append(_classify_outcome(info))

@@ -1,0 +1,100 @@
+{
+  "protocol_version": 1,
+  "seed": 7,
+  "games_per_defender": 150,
+  "quality_positions": 10000,
+  "scenarios": {
+    "krk": {
+      "move_quality": {
+        "positions": 10000,
+        "optimal_move_rate": 0.9406,
+        "suboptimal_move_rate": 0.0594,
+        "win_to_draw_rate": 0.0052
+      },
+      "defenders": {
+        "random": {
+          "model": {
+            "games": 150,
+            "wins": 144,
+            "draws": 6,
+            "losses": 0,
+            "win_rate": 0.96,
+            "draw_rate": 0.04,
+            "loss_rate": 0.0,
+            "mean_mate_length_plies": 13.48611111111111,
+            "mean_optimal_dtm_plies": 18.90277777777778,
+            "mean_mate_length_to_optimal_dtm": 0.7437589980393347
+          },
+          "rl_model": {
+            "games": 150,
+            "wins": 121,
+            "draws": 29,
+            "losses": 0,
+            "win_rate": 0.8066666666666666,
+            "draw_rate": 0.19333333333333333,
+            "loss_rate": 0.0,
+            "mean_mate_length_plies": 15.396694214876034,
+            "mean_optimal_dtm_plies": 19.03305785123967,
+            "mean_mate_length_to_optimal_dtm": 0.8713598572247759
+          },
+          "random_baseline": {
+            "games": 150,
+            "wins": 2,
+            "draws": 148,
+            "losses": 0,
+            "win_rate": 0.013333333333333334,
+            "draw_rate": 0.9866666666666667,
+            "loss_rate": 0.0,
+            "mean_mate_length_plies": 16.0,
+            "mean_optimal_dtm_plies": 10.0,
+            "mean_mate_length_to_optimal_dtm": 1.8
+          }
+        },
+        "optimal": {
+          "model": {
+            "games": 150,
+            "wins": 124,
+            "draws": 26,
+            "losses": 0,
+            "win_rate": 0.8266666666666667,
+            "draw_rate": 0.17333333333333334,
+            "loss_rate": 0.0,
+            "mean_mate_length_plies": 20.516129032258064,
+            "mean_optimal_dtm_plies": 18.693548387096776,
+            "mean_mate_length_to_optimal_dtm": 1.1092201484509807
+          },
+          "rl_model": {
+            "games": 150,
+            "wins": 84,
+            "draws": 66,
+            "losses": 0,
+            "win_rate": 0.56,
+            "draw_rate": 0.44,
+            "loss_rate": 0.0,
+            "mean_mate_length_plies": 21.166666666666668,
+            "mean_optimal_dtm_plies": 17.61904761904762,
+            "mean_mate_length_to_optimal_dtm": 1.262678114161249
+          },
+          "random_baseline": {
+            "games": 150,
+            "wins": 0,
+            "draws": 150,
+            "losses": 0,
+            "win_rate": 0.0,
+            "draw_rate": 1.0,
+            "loss_rate": 0.0,
+            "mean_mate_length_plies": null,
+            "mean_optimal_dtm_plies": null,
+            "mean_mate_length_to_optimal_dtm": null
+          }
+        }
+      },
+      "rl_move_quality": {
+        "positions": 10000,
+        "optimal_move_rate": 0.9145,
+        "suboptimal_move_rate": 0.0855,
+        "win_to_draw_rate": 0.0048
+      }
+    }
+  }
+}
