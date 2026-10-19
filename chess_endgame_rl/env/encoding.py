@@ -167,3 +167,112 @@ def board_to_observation(board: chess.Board, scenario_id: str | None = None) -> 
         if offset < 192:
             obs[offset] = 1.0
     return obs
+
+
+PIECE_TYPES = [
+    chess.PAWN,
+    chess.KNIGHT,
+    chess.BISHOP,
+    chess.ROOK,
+    chess.QUEEN,
+    chess.KING,
+]
+
+
+def encode_board(board: chess.Board) -> np.ndarray:
+    """Encode a chess position into an 18x8x8 binary tensor from side-to-move perspective.
+    
+    If Black is to move, the board is mirrored vertically and colors are swapped
+    so that the active player's pieces always occupy planes 0-5.
+    
+    Planes:
+        0-5:   Own pieces (P, N, B, R, Q, K)
+        6-11:  Opponent pieces (P, N, B, R, Q, K)
+        12:    Side-to-move (all ones for canonical representation)
+        13-16: Castling rights (own K, own Q, opp K, opp Q)
+        17:    En-passant target square (if available)
+        
+    Returns:
+        np.ndarray of shape (18, 8, 8) with dtype float32.
+    """
+    planes = np.zeros((18, 8, 8), dtype=np.float32)
+    view_board = board if board.turn == chess.WHITE else board.mirror()
+
+    # Planes 0-5: Own pieces (White in view_board)
+    for p_idx, pt in enumerate(PIECE_TYPES):
+        for sq in view_board.pieces(pt, chess.WHITE):
+            r, f = chess.square_rank(sq), chess.square_file(sq)
+            planes[p_idx, r, f] = 1.0
+
+    # Planes 6-11: Opponent pieces (Black in view_board)
+    for p_idx, pt in enumerate(PIECE_TYPES):
+        for sq in view_board.pieces(pt, chess.BLACK):
+            r, f = chess.square_rank(sq), chess.square_file(sq)
+            planes[6 + p_idx, r, f] = 1.0
+
+    # Plane 12: Side-to-move (constant 1.0)
+    planes[12, :, :] = 1.0
+
+    # Planes 13-16: Castling rights
+    if view_board.has_kingside_castling_rights(chess.WHITE):
+        planes[13, :, :] = 1.0
+    if view_board.has_queenside_castling_rights(chess.WHITE):
+        planes[14, :, :] = 1.0
+    if view_board.has_kingside_castling_rights(chess.BLACK):
+        planes[15, :, :] = 1.0
+    if view_board.has_queenside_castling_rights(chess.BLACK):
+        planes[16, :, :] = 1.0
+
+    # Plane 17: En-passant target square
+    if view_board.ep_square is not None:
+        r, f = chess.square_rank(view_board.ep_square), chess.square_file(view_board.ep_square)
+        planes[17, r, f] = 1.0
+
+    return planes
+
+
+def move_to_index(move: chess.Move, perspective: chess.Color = chess.WHITE) -> int:
+    """Map a chess.Move to a discrete action index in [0, 4095].
+    
+    Formula: from_sq * 64 + to_sq.
+    If perspective is BLACK, the move squares are mirrored vertically.
+    """
+    from_sq = move.from_square
+    to_sq = move.to_square
+    if perspective == chess.BLACK:
+        from_sq = chess.square_mirror(from_sq)
+        to_sq = chess.square_mirror(to_sq)
+    assert 0 <= from_sq < 64 and 0 <= to_sq < 64
+    return from_sq * 64 + to_sq
+
+
+def index_to_move(idx: int, board: chess.Board) -> chess.Move:
+    """Map a discrete action index in [0, 4095] back to a chess.Move.
+    
+    If board.turn is BLACK, square coordinates are un-mirrored.
+    Promotions automatically resolve to Queen.
+    """
+    from_sq = idx // 64
+    to_sq = idx % 64
+    if board.turn == chess.BLACK:
+        from_sq = chess.square_mirror(from_sq)
+        to_sq = chess.square_mirror(to_sq)
+
+    piece = board.piece_at(from_sq)
+    promotion = None
+    if piece and piece.piece_type == chess.PAWN:
+        to_rank = chess.square_rank(to_sq)
+        if (piece.color == chess.WHITE and to_rank == 7) or (piece.color == chess.BLACK and to_rank == 0):
+            promotion = chess.QUEEN
+
+    return chess.Move(from_sq, to_sq, promotion=promotion)
+
+
+def legal_mask(board: chess.Board) -> np.ndarray:
+    """Return a boolean mask of shape (4096,) indicating legal moves for board.turn."""
+    mask = np.zeros(4096, dtype=bool)
+    for move in board.legal_moves:
+        idx = move_to_index(move, perspective=board.turn)
+        mask[idx] = True
+    return mask
+
