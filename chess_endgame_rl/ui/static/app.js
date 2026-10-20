@@ -236,15 +236,14 @@ const DOM = {
   viewAnalysis: document.getElementById('view-analysis'),
   viewTheory: document.getElementById('view-theory'),
   // Analysis elements
-  benchmarkMatrixTbody: document.getElementById('benchmark-matrix-tbody'),
   solverModelsTbody: document.getElementById('solver-models-tbody'),
   bestCheckmateRate: document.getElementById('best-checkmate-rate'),
   bestCheckmateAgent: document.getElementById('best-checkmate-agent'),
   fastestMateMoves: document.getElementById('fastest-mate-moves'),
   lowestStalemateRate: document.getElementById('lowest-stalemate-rate'),
-  btnRefreshMetrics: document.getElementById('btn-refresh-metrics'),
-  chartRewardsCanvas: document.getElementById('chart-rewards'),
-  outcomeBreakdownContainer: document.getElementById('outcome-breakdown-container'),
+  agentOutcomeLegend: document.getElementById('agent-outcome-legend'),
+  agentOutcomeCanvas: document.getElementById('chart-agent-outcomes'),
+  checkpointQualityCanvas: document.getElementById('chart-checkpoint-quality'),
 };
 
 // ============================================================================
@@ -819,44 +818,177 @@ function setupNavigation() {
 
 async function loadAnalysisData() {
   try {
-    const [comparisonRes, summaryRes] = await Promise.all([
-      fetch('/api/comparison'),
-      fetch('/api/summary'),
-    ]);
+    const comparisonRes = await fetch('/api/comparison', { cache: 'no-store' });
 
-    if (!comparisonRes.ok || !summaryRes.ok) {
+    if (!comparisonRes.ok) {
       throw new Error('Analysis data request failed.');
     }
     const comparison = await comparisonRes.json();
-    const summary = await summaryRes.json();
 
-    renderBenchmarkTable(comparison, summary);
-    renderRewardCharts(comparison);
-    renderOutcomeBars(comparison, summary);
+    renderAgentOutcomeChart(comparison.solver_models || []);
+    renderCheckpointQualityChart(comparison.solver_models || []);
     renderSolverModels(comparison.solver_models || []);
   } catch (err) {
     console.error('Failed to load analysis data:', err);
     DOM.solverModelsTbody.innerHTML =
-      '<tr><td colspan="7" class="loading-cell">Could not load model comparison data.</td></tr>';
+      '<tr><td colspan="6" class="loading-cell">Could not load model comparison data.</td></tr>';
   }
+}
+
+function renderAgentOutcomeChart(models) {
+  const canvas = DOM.agentOutcomeCanvas;
+  const legend = DOM.agentOutcomeLegend;
+  if (!canvas || !legend) return;
+
+  const outcomes = [
+    { key: 'wins', label: 'Checkmate wins', color: '#38b779' },
+    { key: 'rook_captures', label: 'Rook captured', color: '#e15b64' },
+    { key: 'repetitions', label: 'Repetition', color: '#e5a93d' },
+    { key: 'horizon_draws', label: 'Horizon', color: '#718096' },
+    { key: 'other_draws', label: 'Other draws', color: '#a78bfa' },
+  ];
+  const agents = models.map((model) => ({
+    name: {
+      DQN: 'DQN baseline',
+      'Dueling network (tablebase warm-start)': 'Dueling warm-start',
+      'Dueling Double DQN (fine-tuned)': 'Dueling + Double DQN',
+    }[model.name] || model.name,
+    result: model.evaluation?.vs_optimal,
+  })).filter(({ result }) => Number.isFinite(result?.games) && result.games > 0)
+    .map(({ name, result }) => {
+      const recorded = result.outcomes || {};
+      const hasBreakdown = Number.isFinite(recorded.rook_captures);
+      return {
+        name,
+        result,
+        outcomes: hasBreakdown
+          ? recorded
+          : {
+            wins: result.wins || 0,
+            losses: result.losses || 0,
+            other_draws: result.draws || 0,
+          },
+      };
+    });
+  if (agents.some(({ outcomes: result }) => result.losses > 0)) {
+    outcomes.push({ key: 'losses', label: 'Losses', color: '#d94655' });
+  }
+
+  legend.replaceChildren();
+  outcomes.forEach((outcome) => {
+    const item = document.createElement('span');
+    item.className = 'legend-chip';
+    const swatch = document.createElement('span');
+    swatch.className = 'outcome-legend-swatch';
+    swatch.style.backgroundColor = outcome.color;
+    const label = document.createElement('span');
+    label.textContent = outcome.label;
+    item.append(swatch, label);
+    legend.appendChild(item);
+  });
+
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth || 700;
+  const height = canvas.clientHeight || 280;
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.fillStyle = '#1c1b18';
+  ctx.fillRect(0, 0, width, height);
+
+  const left = Math.min(190, Math.max(140, width * 0.25));
+  const right = width - 24;
+  const top = 30;
+  const bottom = height - 34;
+  ctx.font = '11px Inter, sans-serif';
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#34312c';
+  ctx.fillStyle = '#8b8579';
+
+  if (agents.length === 0) {
+    ctx.fillText('No same-protocol game outcome data is available.', left, top + 20);
+    return;
+  }
+
+  for (let tick = 0; tick <= 4; tick += 1) {
+    const x = left + (tick / 4) * (right - left);
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x, bottom);
+    ctx.stroke();
+    ctx.fillText(`${tick * 25}%`, x - 11, height - 10);
+  }
+
+  const rowStep = (bottom - top) / agents.length;
+  agents.forEach(({ name, result, outcomes: resultOutcomes }, index) => {
+    const labelY = top + index * rowStep + 13;
+    const barY = labelY + 8;
+    const barHeight = Math.min(24, rowStep * 0.38);
+    ctx.fillStyle = '#ded8cc';
+    ctx.font = '600 11px Inter, sans-serif';
+    ctx.fillText(name, 8, labelY);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#8b8579';
+    ctx.font = '11px Inter, sans-serif';
+    ctx.fillText(
+      `Win ${resultOutcomes.wins || 0}  ·  Rook ${resultOutcomes.rook_captures || 0}  ·  Rep ${resultOutcomes.repetitions || 0}  ·  Horizon ${resultOutcomes.horizon_draws || 0}  ·  Other ${resultOutcomes.other_draws || 0}  (${result.games} games)`,
+      right,
+      labelY,
+    );
+    ctx.textAlign = 'left';
+
+    let currentX = left;
+    outcomes.forEach((outcome) => {
+      const count = Number.isFinite(resultOutcomes[outcome.key])
+        ? resultOutcomes[outcome.key]
+        : 0;
+      const segmentWidth = ((count / result.games) * (right - left));
+      ctx.fillStyle = outcome.color;
+      ctx.fillRect(currentX, barY, segmentWidth, barHeight);
+      if (segmentWidth > 28) {
+        ctx.fillStyle = '#171614';
+        ctx.font = '600 10px Inter, sans-serif';
+        ctx.fillText(String(count), currentX + 4, barY + barHeight / 2 + 3);
+      }
+      currentX += segmentWidth;
+    });
+  });
 }
 
 function renderSolverModels(models) {
   const tbody = DOM.solverModelsTbody;
   tbody.innerHTML = '';
+  const percent = (value) => Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : '—';
+  const outcome = (result) => {
+    if (!result || !Number.isFinite(result.games)) return '—';
+    const breakdown = result.outcomes || {};
+    const values = [
+      `W ${breakdown.wins ?? result.wins ?? 0}`,
+      `Rook ${breakdown.rook_captures ?? 0}`,
+      `Rep ${breakdown.repetitions ?? 0}`,
+      `Horizon ${breakdown.horizon_draws ?? 0}`,
+      `Other ${breakdown.other_draws ?? result.draws ?? 0}`,
+    ];
+    if ((breakdown.losses ?? result.losses ?? 0) > 0) {
+      values.push(`Loss ${breakdown.losses ?? result.losses}`);
+    }
+    return `${values.join(' / ')} (${result.games} games)`;
+  };
+
   models.forEach((model) => {
-    const validation = model.validation || {};
     const evaluation = model.evaluation || {};
-    const percent = (value) => Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '—';
+    const moveQuality = evaluation.move_quality || {};
     const tr = document.createElement('tr');
     const cells = [
       model.name,
-      model.checkpoint_available ? 'Checkpoint ready' : 'Not trained yet',
-      percent(validation.optimal_move_rate),
-      percent(validation.keeps_win_rate),
-      percent(validation.win_to_draw_rate),
-      percent(evaluation.vs_random?.win_rate),
-      percent(evaluation.vs_optimal?.win_rate),
+      model.name === 'DQN'
+        ? (model.checkpoint_available ? 'Model ready' : 'Not trained')
+        : (model.checkpoint_available ? 'Checkpoint ready' : 'Not trained yet'),
+      `${percent(moveQuality.optimal_move_rate)} (${Number.isFinite(moveQuality.positions) ? `${moveQuality.positions.toLocaleString()} positions` : '—'})`,
+      percent(moveQuality.win_to_draw_rate),
+      outcome(evaluation.vs_random),
+      outcome(evaluation.vs_optimal),
     ];
     cells.forEach((value) => {
       const td = document.createElement('td');
@@ -866,8 +998,27 @@ function renderSolverModels(models) {
     tbody.appendChild(tr);
   });
   if (models.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="loading-cell">No Dueling Double-DQN checkpoints are configured.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="loading-cell">No current Dueling checkpoints are configured.</td></tr>';
   }
+
+  const warmstart = models.find((model) => model.name === 'Dueling network (tablebase warm-start)');
+  const fineTuned = models.find((model) => model.name === 'Dueling Double DQN (fine-tuned)');
+  const warmstartEvaluation = warmstart?.evaluation || {};
+  const fineTunedEvaluation = fineTuned?.evaluation || {};
+  const warmstartOptimal = warmstartEvaluation.vs_optimal;
+  const fineTunedOptimal = fineTunedEvaluation.vs_optimal;
+  DOM.bestCheckmateRate.textContent = Number.isFinite(warmstartOptimal?.win_rate)
+    ? percent(warmstartOptimal.win_rate)
+    : '—';
+  DOM.bestCheckmateAgent.textContent = warmstartOptimal
+    ? `${warmstartOptimal.wins} / ${warmstartOptimal.games} wins vs tablebase-optimal`
+    : 'No evaluation data available';
+  DOM.fastestMateMoves.textContent = Number.isFinite(fineTunedOptimal?.win_rate)
+    ? percent(fineTunedOptimal.win_rate)
+    : '—';
+  DOM.lowestStalemateRate.textContent = Number.isFinite(warmstartEvaluation.move_quality?.optimal_move_rate)
+    ? percent(warmstartEvaluation.move_quality.optimal_move_rate)
+    : '—';
 }
 
 async function loadAgentOptions() {
@@ -902,195 +1053,74 @@ async function loadAgentOptions() {
   }
 }
 
-function renderBenchmarkTable(comparison, summary) {
-  const tbody = DOM.benchmarkMatrixTbody;
-  tbody.innerHTML = '';
-
-  const algos = [
-    { key: 'Q-Learning', family: 'Tabular MDP', states: '262,144 (64³)' },
-    { key: 'DQN', family: 'Deep Value Approx', states: '193-dim Vector' },
-    { key: 'PPO', family: 'Actor-Critic Policy', states: '193-dim Vector' },
-  ];
-
-  let bestRate = -1;
-  let bestAgent = '—';
-  let fastestMate = 999;
-  let lowestStalemate = 999;
-
-  algos.forEach((algo) => {
-    const compData = comparison[algo.key] || {};
-    const metrics = compData.metrics || summary[algo.key] || {};
-
-    const mateRate = metrics.checkmate_rate !== undefined ? metrics.checkmate_rate : 0;
-    const staleRate = metrics.stalemate_rate !== undefined ? metrics.stalemate_rate : 0;
-    const timeoutRate = metrics.timeout_rate !== undefined ? metrics.timeout_rate : 0;
-    const meanReward = metrics.mean_reward !== undefined ? metrics.mean_reward : 0;
-    const avgMoves = metrics.avg_moves !== undefined ? metrics.avg_moves : 0;
-    const timeSec = compData.training_time ? `${compData.training_time.toFixed(1)}s` : '—';
-
-    if (mateRate > bestRate) {
-      bestRate = mateRate;
-      bestAgent = algo.key;
-    }
-    if (avgMoves > 0 && avgMoves < fastestMate) {
-      fastestMate = avgMoves;
-    }
-    if (staleRate < lowestStalemate) {
-      lowestStalemate = staleRate;
-    }
-
-    const rateClass = mateRate > 0.5 ? 'high' : mateRate > 0.1 ? 'med' : 'low';
-
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><strong>${algo.key}</strong></td>
-      <td><span class="agent-tag">${algo.family}</span></td>
-      <td><code>${algo.states}</code></td>
-      <td><span class="rate-badge ${rateClass}">${(mateRate * 100).toFixed(1)}%</span></td>
-      <td>${(staleRate * 100).toFixed(1)}%</td>
-      <td>${(timeoutRate * 100).toFixed(1)}%</td>
-      <td><code>${meanReward.toFixed(3)}</code></td>
-      <td>${avgMoves.toFixed(1)}</td>
-      <td>${timeSec}</td>
-    `;
-    tbody.appendChild(tr);
-  });
-
-  // Update top summary cards
-  if (bestRate >= 0) {
-    DOM.bestCheckmateRate.textContent = `${(bestRate * 100).toFixed(1)}%`;
-    DOM.bestCheckmateAgent.textContent = `Leader: ${bestAgent}`;
-  }
-  if (fastestMate < 999) {
-    DOM.fastestMateMoves.textContent = `${fastestMate.toFixed(1)} Moves`;
-  } else {
-    DOM.fastestMateMoves.textContent = `~24 Moves`;
-  }
-  if (lowestStalemate < 999) {
-    DOM.lowestStalemateRate.textContent = `${(lowestStalemate * 100).toFixed(1)}%`;
-  }
-}
-
-function renderRewardCharts(comparison) {
-  const canvas = DOM.chartRewardsCanvas;
+function renderCheckpointQualityChart(models) {
+  const canvas = DOM.checkpointQualityCanvas;
   if (!canvas) return;
+
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
   const width = canvas.clientWidth || 700;
-  const height = canvas.clientHeight || 280;
-
+  const height = canvas.clientHeight || 240;
   canvas.width = width * dpr;
   canvas.height = height * dpr;
   ctx.scale(dpr, dpr);
-
-  // Background
   ctx.fillStyle = '#1c1b18';
   ctx.fillRect(0, 0, width, height);
 
-  // Grid lines
-  ctx.strokeStyle = '#2d2b27';
+  const model = models.find((item) => item.name === 'Dueling Double DQN (fine-tuned)');
+  const history = model?.training?.history || [];
+  const points = history
+    .filter((item) => Number.isFinite(item.environment_steps) && Number.isFinite(item.optimal_move_rate))
+    .sort((a, b) => a.environment_steps - b.environment_steps);
+
+  const left = 54;
+  const right = width - 24;
+  const top = 24;
+  const bottom = height - 42;
+  const minRate = 0.7;
+  const maxRate = 1.0;
+  ctx.font = '11px Inter, sans-serif';
   ctx.lineWidth = 1;
-  for (let y = 30; y < height - 30; y += 40) {
+  ctx.strokeStyle = '#34312c';
+  ctx.fillStyle = '#8b8579';
+  [0.7, 0.8, 0.9, 1.0].forEach((rate) => {
+    const y = bottom - ((rate - minRate) / (maxRate - minRate)) * (bottom - top);
     ctx.beginPath();
-    ctx.moveTo(40, y);
-    ctx.lineTo(width - 20, y);
+    ctx.moveTo(left, y);
+    ctx.lineTo(right, y);
     ctx.stroke();
-  }
-
-  const curves = [
-    { key: 'Q-Learning', color: '#3b82f6', history: comparison['Q-Learning']?.rewards_history || [] },
-    { key: 'DQN', color: '#629924', history: comparison['DQN']?.rewards_history || [] },
-    { key: 'PPO', color: '#a855f7', history: comparison['PPO']?.rewards_history || [] },
-  ];
-
-  // Moving average smoothing helper
-  function smooth(data, windowSize = 10) {
-    if (!data.length) return [];
-    const result = [];
-    for (let i = 0; i < data.length; i++) {
-      const start = Math.max(0, i - windowSize + 1);
-      const chunk = data.slice(start, i + 1);
-      const avg = chunk.reduce((a, b) => a + b, 0) / chunk.length;
-      result.push(avg);
-    }
-    return result;
-  }
-
-  curves.forEach(({ color, history }) => {
-    if (!history || history.length === 0) return;
-    const smoothed = smooth(history, 8);
-    const minVal = -2.0;
-    const maxVal = 4.0;
-    const plotW = width - 70;
-    const plotH = height - 70;
-
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2.5;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 6;
-    ctx.beginPath();
-
-    smoothed.forEach((val, idx) => {
-      const x = 45 + (idx / (smoothed.length - 1)) * plotW;
-      const normY = (val - minVal) / (maxVal - minVal);
-      const y = height - 35 - normY * plotH;
-      if (idx === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+    ctx.fillText(`${Math.round(rate * 100)}%`, 12, y + 4);
   });
 
-  // Axis labels
-  ctx.fillStyle = '#7d786d';
-  ctx.font = '10px Inter, sans-serif';
-  ctx.fillText('Episodes →', width - 80, height - 12);
-  ctx.fillText('Reward ↑', 10, 22);
-}
+  if (points.length === 0) {
+    ctx.fillStyle = '#aaa398';
+    ctx.fillText('No fine-tuning validation history is available.', left, top + 24);
+    return;
+  }
 
-function renderOutcomeBars(comparison, summary) {
-  const container = DOM.outcomeBreakdownContainer;
-  container.innerHTML = '';
-
-  ['Q-Learning', 'DQN', 'PPO'].forEach((name) => {
-    const compData = comparison[name] || {};
-    const metrics = compData.metrics || summary[name] || {};
-
-    const outcomes = [
-      { key: 'mate', label: 'Mate', value: metrics.checkmate_rate || 0, className: 'segment-mate' },
-      { key: 'stalemate', label: 'Stalemate', value: metrics.stalemate_rate || 0, className: 'segment-stalemate' },
-      { key: 'timeout', label: 'Timeout', value: metrics.timeout_rate || 0, className: 'segment-timeout' },
-      { key: 'loss', label: 'Loss', value: metrics.loss_rate || 0, className: 'segment-loss' },
-    ];
-    const total = outcomes.reduce((sum, outcome) => sum + outcome.value, 0);
-    const normalized = total > 0
-      ? outcomes.map((outcome) => ({
-        ...outcome,
-        percent: outcome.value / total * 100,
-      }))
-      : outcomes.map((outcome) => ({ ...outcome, percent: 0 }));
-    const summaryText = normalized
-      .map((outcome) => `${outcome.label}: ${outcome.value ? `${(outcome.value * 100).toFixed(1)}%` : '—'}`)
-      .join(' • ');
-
-    const row = document.createElement('div');
-    row.className = 'outcome-row';
-    row.innerHTML = `
-      <div class="outcome-label-row">
-        <span><strong>${name}</strong></span>
-        <span>${summaryText}</span>
-      </div>
-      <div class="outcome-bar-track">
-        ${normalized.map((outcome) => `
-          <div class="outcome-segment ${outcome.className}" style="width: ${outcome.percent}%;" title="${outcome.label}: ${(outcome.value * 100).toFixed(1)}%">
-            ${outcome.percent > 8 ? `${Math.round(outcome.percent)}%` : ''}
-          </div>
-        `).join('')}
-      </div>
-    `;
-    container.appendChild(row);
+  const maxSteps = Math.max(points[points.length - 1].environment_steps, 1);
+  ctx.strokeStyle = '#a855f7';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  points.forEach((point, index) => {
+    const x = left + (point.environment_steps / maxSteps) * (right - left);
+    const y = bottom - ((point.optimal_move_rate - minRate) / (maxRate - minRate)) * (bottom - top);
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
   });
+  ctx.stroke();
+  ctx.fillStyle = '#c084fc';
+  points.forEach((point) => {
+    const x = left + (point.environment_steps / maxSteps) * (right - left);
+    const y = bottom - ((point.optimal_move_rate - minRate) / (maxRate - minRate)) * (bottom - top);
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.fillStyle = '#8b8579';
+  ctx.fillText('Environment steps →', Math.max(left, width - 150), height - 12);
+  ctx.fillText('0', left, height - 12);
+  ctx.fillText(`${maxSteps.toLocaleString()}`, right - 38, height - 12);
 }
 
 // ============================================================================
@@ -1157,8 +1187,6 @@ function setupEventListeners() {
     });
   });
 
-  // Refresh metrics button in analysis tab
-  DOM.btnRefreshMetrics.addEventListener('click', loadAnalysisData);
 }
 
 // ============================================================================

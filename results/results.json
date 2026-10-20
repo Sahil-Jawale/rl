@@ -21,6 +21,14 @@
             "win_rate": 0.96,
             "draw_rate": 0.04,
             "loss_rate": 0.0,
+            "outcomes": {
+              "wins": 144,
+              "losses": 0,
+              "rook_captures": 5,
+              "repetitions": 0,
+              "horizon_draws": 0,
+              "other_draws": 1
+            },
             "mean_mate_length_plies": 13.48611111111111,
             "mean_optimal_dtm_plies": 18.90277777777778,
             "mean_mate_length_to_optimal_dtm": 0.7437589980393347
@@ -33,9 +41,37 @@
             "win_rate": 0.8066666666666666,
             "draw_rate": 0.19333333333333333,
             "loss_rate": 0.0,
+            "outcomes": {
+              "wins": 121,
+              "losses": 0,
+              "rook_captures": 2,
+              "repetitions": 24,
+              "horizon_draws": 0,
+              "other_draws": 3
+            },
             "mean_mate_length_plies": 15.396694214876034,
             "mean_optimal_dtm_plies": 19.03305785123967,
             "mean_mate_length_to_optimal_dtm": 0.8713598572247759
+          },
+          "dqn_baseline": {
+            "games": 150,
+            "wins": 0,
+            "draws": 150,
+            "losses": 0,
+            "win_rate": 0.0,
+            "draw_rate": 1.0,
+            "loss_rate": 0.0,
+            "outcomes": {
+              "wins": 0,
+              "losses": 0,
+              "rook_captures": 73,
+              "repetitions": 42,
+              "horizon_draws": 35,
+              "other_draws": 0
+            },
+            "mean_mate_length_plies": null,
+            "mean_optimal_dtm_plies": null,
+            "mean_mate_length_to_optimal_dtm": null
           },
           "random_baseline": {
             "games": 150,
@@ -45,6 +81,14 @@
             "win_rate": 0.013333333333333334,
             "draw_rate": 0.9866666666666667,
             "loss_rate": 0.0,
+            "outcomes": {
+              "wins": 2,
+              "losses": 0,
+              "rook_captures": 97,
+              "repetitions": 14,
+              "horizon_draws": 36,
+              "other_draws": 1
+            },
             "mean_mate_length_plies": 16.0,
             "mean_optimal_dtm_plies": 10.0,
             "mean_mate_length_to_optimal_dtm": 1.8
@@ -59,6 +103,14 @@
             "win_rate": 0.8266666666666667,
             "draw_rate": 0.17333333333333334,
             "loss_rate": 0.0,
+            "outcomes": {
+              "wins": 124,
+              "losses": 0,
+              "rook_captures": 19,
+              "repetitions": 5,
+              "horizon_draws": 0,
+              "other_draws": 2
+            },
             "mean_mate_length_plies": 20.516129032258064,
             "mean_optimal_dtm_plies": 18.693548387096776,
             "mean_mate_length_to_optimal_dtm": 1.1092201484509807
@@ -71,9 +123,37 @@
             "win_rate": 0.56,
             "draw_rate": 0.44,
             "loss_rate": 0.0,
+            "outcomes": {
+              "wins": 84,
+              "losses": 0,
+              "rook_captures": 29,
+              "repetitions": 34,
+              "horizon_draws": 0,
+              "other_draws": 3
+            },
             "mean_mate_length_plies": 21.166666666666668,
             "mean_optimal_dtm_plies": 17.61904761904762,
             "mean_mate_length_to_optimal_dtm": 1.262678114161249
+          },
+          "dqn_baseline": {
+            "games": 150,
+            "wins": 0,
+            "draws": 150,
+            "losses": 0,
+            "win_rate": 0.0,
+            "draw_rate": 1.0,
+            "loss_rate": 0.0,
+            "outcomes": {
+              "wins": 0,
+              "losses": 0,
+              "rook_captures": 129,
+              "repetitions": 21,
+              "horizon_draws": 0,
+              "other_draws": 0
+            },
+            "mean_mate_length_plies": null,
+            "mean_optimal_dtm_plies": null,
+            "mean_mate_length_to_optimal_dtm": null
           },
           "random_baseline": {
             "games": 150,
@@ -83,6 +163,14 @@
             "win_rate": 0.0,
             "draw_rate": 1.0,
             "loss_rate": 0.0,
+            "outcomes": {
+              "wins": 0,
+              "losses": 0,
+              "rook_captures": 144,
+              "repetitions": 6,
+              "horizon_draws": 0,
+              "other_draws": 0
+            },
             "mean_mate_length_plies": null,
             "mean_optimal_dtm_plies": null,
             "mean_mate_length_to_optimal_dtm": null

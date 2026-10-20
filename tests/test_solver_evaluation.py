@@ -5,8 +5,10 @@ import numpy as np
 import pytest
 import torch
 
+from chess_endgame_rl.agents import DeepQNetwork
 from chess_endgame_rl.eval.evaluate_all import (
     board_from_state,
+    choose_dqn_move,
     evaluate_scenario,
     evaluate_move_quality,
     play_game,
@@ -53,6 +55,36 @@ def test_game_summary_reports_separate_win_draw_loss_and_win_rate():
     assert (summary["wins"], summary["draws"], summary["losses"]) == (1, 1, 1)
     assert summary["win_rate"] == pytest.approx(1 / 3)
     assert summary["mean_mate_length_to_optimal_dtm"] == pytest.approx(9 / 7)
+    assert summary["outcomes"] == {
+        "wins": 1,
+        "losses": 1,
+        "rook_captures": 0,
+        "repetitions": 0,
+        "horizon_draws": 0,
+        "other_draws": 1,
+    }
+
+
+def test_game_summary_counts_each_draw_reason_separately():
+    summary = summarize_games(
+        [
+            {"outcome": "win", "plies": 30, "initial_dtm": 12},
+            {"outcome": "draw", "draw_reason": "rook_capture", "plies": 5},
+            {"outcome": "draw", "draw_reason": "repetition", "plies": 20},
+            {"outcome": "draw", "draw_reason": "horizon", "plies": 100},
+            {"outcome": "draw", "draw_reason": "other", "plies": 50},
+        ]
+    )
+
+    assert summary["outcomes"] == {
+        "wins": 1,
+        "losses": 0,
+        "rook_captures": 1,
+        "repetitions": 1,
+        "horizon_draws": 1,
+        "other_draws": 1,
+    }
+    assert sum(summary["outcomes"].values()) == summary["games"]
 
 
 def test_solver_move_quality_metrics_are_seeded_and_wdl_rates_are_complete():
@@ -96,6 +128,48 @@ def test_random_play_game_returns_valid_wdl_and_horizon_result():
     assert result["outcome"] in {"win", "draw", "loss"}
     assert result["plies"] <= 2
     assert result["truncated"] or result["plies"] <= 2
+
+
+def test_dqn_protocol_uses_legal_moves_and_records_shared_game_outcomes():
+    tablebase = Tablebase.load(CACHE_DIR / "krk.npz")
+    start_id = int(
+        next(
+            idx
+            for idx in range(0, tablebase.dtm.size, 2)
+            if tablebase.legal[idx] and tablebase.dtm[idx] > 0
+        )
+    )
+    agent = DeepQNetwork()
+    board = board_from_state(tablebase, start_id)
+
+    assert choose_dqn_move(agent, board, move_count=0) in board.legal_moves
+    game = play_game(
+        tablebase,
+        start_id,
+        "optimal",
+        model=None,
+        dqn_agent=agent,
+        seed=7,
+        device=torch.device("cpu"),
+        max_plies=2,
+    )
+
+    assert game["outcome"] in {"win", "draw", "loss"}
+    assert game["plies"] <= 2
+
+    evaluation = evaluate_scenario(
+        tablebase,
+        model=DuelingNet(hidden_dim=32).eval(),
+        dqn_agent=agent,
+        games_per_defender=1,
+        seed=7,
+        device=torch.device("cpu"),
+        quality_positions=1,
+        heldout_state_ids=np.array([start_id]),
+    )
+    for defender_metrics in evaluation["defenders"].values():
+        assert defender_metrics["model"]["games"] == 1
+        assert defender_metrics["dqn_baseline"]["games"] == 1
 
 
 def test_full_evaluation_protocol_smoke_uses_shared_heldout_start(tmp_path):

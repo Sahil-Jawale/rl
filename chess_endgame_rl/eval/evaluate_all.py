@@ -10,10 +10,14 @@ import chess
 import numpy as np
 import torch
 
+from chess_endgame_rl.agents import DeepQNetwork
 from chess_endgame_rl.env.defenders import defender_for
 from chess_endgame_rl.env.encoding import (
+    action_to_move,
+    board_to_observation,
     encode_board,
     index_to_move,
+    legal_action_mask,
     legal_mask,
     move_to_index,
 )
@@ -85,10 +89,34 @@ def choose_model_move(
     return move
 
 
+def choose_dqn_move(
+    agent: DeepQNetwork, board: chess.Board, move_count: int
+) -> chess.Move:
+    observation = board_to_observation(board, "krk")
+    normalized_move_count = np.array([move_count / 100.0], dtype=np.float32)
+    state = np.concatenate([observation.astype(np.float32), normalized_move_count])
+    action = agent.predict_greedy(state, legal_action_mask(board, "krk"))
+    move = action_to_move(board, action)
+    if move is None or move not in board.legal_moves:
+        raise RuntimeError(f"DQN selected an invalid action: {action}.")
+    return move
+
+
 def _outcome(board: chess.Board) -> str:
     if board.is_checkmate():
         return "win" if board.turn == chess.BLACK else "loss"
     return "draw"
+
+
+def _draw_reason(board: chess.Board, *, plies: int, max_plies: int) -> str:
+    if board.is_insufficient_material() and not board.pieces(chess.ROOK, chess.WHITE):
+        return "rook_capture"
+    if board.can_claim_threefold_repetition():
+        return "repetition"
+    # python-chess permits claiming the 50-move draw one ply before the cap.
+    if plies >= max_plies - 1:
+        return "horizon"
+    return "other"
 
 
 def play_game(
@@ -99,8 +127,11 @@ def play_game(
     model: DuelingNet | None,
     seed: int,
     device: torch.device,
+    dqn_agent: DeepQNetwork | None = None,
     max_plies: int = 100,
 ) -> dict[str, Any]:
+    if model is not None and dqn_agent is not None:
+        raise ValueError("Select either a Dueling model or a DQN agent, not both.")
     board = board_from_state(tablebase, start_state_id)
     if board.turn != chess.WHITE or board.is_game_over():
         raise ValueError(f"Invalid non-terminal attacker start state: {start_state_id}")
@@ -112,7 +143,11 @@ def play_game(
     while plies < max_plies and not board.is_game_over(claim_draw=True):
         if board.turn == chess.WHITE:
             if model is None:
-                move = rng.choice(list(board.legal_moves))
+                move = (
+                    choose_dqn_move(dqn_agent, board, plies)
+                    if dqn_agent is not None
+                    else rng.choice(list(board.legal_moves))
+                )
             else:
                 move = choose_model_move(model, board, device)
         else:
@@ -120,12 +155,19 @@ def play_game(
         board.push(move)
         plies += 1
 
-    result = _outcome(board) if board.is_game_over(claim_draw=True) else "draw"
+    is_over = board.is_game_over(claim_draw=True)
+    result = _outcome(board) if is_over else "draw"
+    draw_reason = (
+        _draw_reason(board, plies=plies, max_plies=max_plies)
+        if result == "draw"
+        else None
+    )
     return {
         "outcome": result,
+        "draw_reason": draw_reason,
         "plies": plies,
         "initial_dtm": initial_dtm if initial_wdl == 1 else None,
-        "truncated": not board.is_game_over(),
+        "truncated": draw_reason == "horizon",
     }
 
 
@@ -136,6 +178,27 @@ def summarize_games(games: list[dict[str, Any]]) -> dict[str, Any]:
     wins = sum(game["outcome"] == "win" for game in games)
     draws = sum(game["outcome"] == "draw" for game in games)
     losses = sum(game["outcome"] == "loss" for game in games)
+    outcome_counts = {
+        "wins": wins,
+        "losses": losses,
+        "rook_captures": sum(
+            game["outcome"] == "draw" and game.get("draw_reason") == "rook_capture"
+            for game in games
+        ),
+        "repetitions": sum(
+            game["outcome"] == "draw" and game.get("draw_reason") == "repetition"
+            for game in games
+        ),
+        "horizon_draws": sum(
+            game["outcome"] == "draw" and game.get("draw_reason") == "horizon"
+            for game in games
+        ),
+        "other_draws": sum(
+            game["outcome"] == "draw"
+            and game.get("draw_reason") not in {"rook_capture", "repetition", "horizon"}
+            for game in games
+        ),
+    }
     converted = [game for game in games if game["outcome"] == "win"]
     ratios = [
         game["plies"] / game["initial_dtm"]
@@ -150,6 +213,7 @@ def summarize_games(games: list[dict[str, Any]]) -> dict[str, Any]:
         "win_rate": wins / total,
         "draw_rate": draws / total,
         "loss_rate": losses / total,
+        "outcomes": outcome_counts,
         "mean_mate_length_plies": (
             float(np.mean([game["plies"] for game in converted])) if converted else None
         ),
@@ -251,6 +315,7 @@ def evaluate_scenario(
     device: torch.device,
     quality_positions: int,
     heldout_state_ids: np.ndarray | None = None,
+    dqn_agent: DeepQNetwork | None = None,
 ) -> dict[str, Any]:
     eligible = np.flatnonzero(
         tablebase.legal[0::2] & (tablebase.dtm[0::2] > 0)
@@ -309,6 +374,20 @@ def evaluate_scenario(
                 for game_idx, state_id in enumerate(starts)
             ]
             defender_metrics[agent_name] = summarize_games(agent_games)
+        if dqn_agent is not None:
+            dqn_games = [
+                play_game(
+                    tablebase,
+                    int(state_id),
+                    defender_name,
+                    model=None,
+                    dqn_agent=dqn_agent,
+                    seed=seed + game_idx,
+                    device=device,
+                )
+                for game_idx, state_id in enumerate(starts)
+            ]
+            defender_metrics["dqn_baseline"] = summarize_games(dqn_games)
         random_games = [
             play_game(
                 tablebase,
@@ -332,7 +411,12 @@ def results_markdown_table(results: dict[str, Any]) -> str:
     ]
     for scenario, scenario_data in sorted(results["scenarios"].items()):
         for defender, defender_data in sorted(scenario_data["defenders"].items()):
-            for agent_name in ("model", "rl_model", "random_baseline"):
+            for agent_name in (
+                "model",
+                "rl_model",
+                "dqn_baseline",
+                "random_baseline",
+            ):
                 if agent_name not in defender_data:
                     continue
                 metrics = defender_data[agent_name]
@@ -348,6 +432,7 @@ def results_markdown_table(results: dict[str, Any]) -> str:
                         {
                             "model": "Warm start",
                             "rl_model": "Warm start + RL",
+                            "dqn_baseline": "DQN baseline",
                             "random_baseline": "Random baseline",
                         }[agent_name],
                         scenario,
@@ -410,6 +495,12 @@ def run_evaluation(
         heldout_state_ids = np.asarray(heldout_state_ids, dtype=np.int64)
         rl_path = ROOT / "models" / "rl" / f"{model_name}.pt"
         rl_model = load_model(rl_path, device) if rl_path.is_file() else None
+        dqn_path = ROOT / "models" / "dqn.npz"
+        dqn_agent = (
+            DeepQNetwork.load(dqn_path)
+            if name == "krk" and dqn_path.is_file()
+            else None
+        )
         scenarios[name] = evaluate_scenario(
             tablebase,
             model=model,
@@ -419,6 +510,7 @@ def run_evaluation(
             device=device,
             quality_positions=quality_positions,
             heldout_state_ids=heldout_state_ids,
+            dqn_agent=dqn_agent,
         )
     return {
         "protocol_version": PROTOCOL_VERSION,

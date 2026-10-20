@@ -664,21 +664,7 @@ def get_agent_results(agent_name: str):
 
 @app.get("/api/comparison")
 def get_comparison():
-    """Get comparative analysis data for all agents."""
-    comparison = {}
-    for algo, display_name in [("q_learning", "Q-Learning"), ("dqn", "DQN"), ("ppo", "PPO")]:
-        path = RESULTS_DIR / f"training_{algo}.json"
-        if path.exists():
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                comparison[display_name] = {
-                    "metrics": data.get("metrics", {}),
-                    "training_time": data.get("training_time", 0),
-                    "episodes": data.get("episodes", 0),
-                    "rewards_history": data.get("rewards_history", []),
-                    "outcomes_history": data.get("outcomes_history", []),
-                    "move_counts_history": data.get("move_counts_history", []),
-                }
+    """Return same-protocol evaluation data for all selectable agents."""
     solver_models = []
     evaluation_path = RESULTS_DIR / "results.json"
     evaluation = (
@@ -687,6 +673,23 @@ def get_comparison():
         else {}
     )
     scenario_evaluation = evaluation.get("scenarios", {}).get("krk", {})
+    full_evaluation = scenario_evaluation.get("defenders", {})
+    dqn_path = MODELS_DIR / "dqn.npz"
+    dqn_evaluation = scenario_evaluation.get("defenders", {})
+    solver_models.append(
+        {
+            "name": "DQN",
+            "checkpoint_available": dqn_path.is_file(),
+            "training": {},
+            "validation": None,
+            "evaluation": {
+                "move_quality": None,
+                "vs_random": dqn_evaluation.get("random", {}).get("dqn_baseline"),
+                "vs_optimal": dqn_evaluation.get("optimal", {}).get("dqn_baseline"),
+                "protocol_version": evaluation.get("protocol_version"),
+            },
+        }
+    )
     for name, checkpoint, run_metrics, evaluation_key in [
         (
             "Dueling network (tablebase warm-start)",
@@ -716,7 +719,6 @@ def get_comparison():
             validation = checkpoint_data.get(
                 "validation_metrics", checkpoint_data.get("evaluation_metrics")
             )
-        full_evaluation = scenario_evaluation.get("defenders", {})
         solver_models.append(
             {
                 "name": name,
@@ -733,8 +735,7 @@ def get_comparison():
                 },
             }
         )
-    comparison["solver_models"] = solver_models
-    return comparison
+    return {"solver_models": solver_models}
 
 
 @app.get("/api/summary")

@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css?v=20261019-model-picker" />
+  <link rel="stylesheet" href="/static/styles.css?v=20261020-three-agent-outcomes" />
 </head>
 <body class="theme-wood">
   <div id="app" class="app-layout">
@@ -292,164 +292,119 @@
     <main id="view-analysis" class="view-container">
       <div class="analysis-dashboard">
         
-        <!-- Summary Cards -->
+        <!-- Current checkpoint evaluation summary -->
         <div class="metrics-summary-grid">
           <div class="metric-card glass-panel">
             <div class="metric-top">
-              <span class="metric-title">Highest Training Mate Rate</span>
+              <span class="metric-title">Warm-start vs optimal defender</span>
               <span class="metric-icon">🏆</span>
             </div>
             <div class="metric-number" id="best-checkmate-rate">—</div>
-            <div class="metric-footer" id="best-checkmate-agent">Calculating...</div>
+            <div class="metric-footer" id="best-checkmate-agent">Loading evaluation...</div>
           </div>
 
           <div class="metric-card glass-panel">
             <div class="metric-top">
-              <span class="metric-title">Training Mean Moves</span>
-              <span class="metric-icon">⚡</span>
+              <span class="metric-title">Fine-tuned vs optimal defender</span>
+              <span class="metric-icon">🧪</span>
             </div>
             <div class="metric-number" id="fastest-mate-moves">—</div>
-            <div class="metric-footer">Moves per checkmate episode</div>
+            <div class="metric-footer">Warm-start + Double DQN</div>
           </div>
 
           <div class="metric-card glass-panel">
             <div class="metric-top">
-              <span class="metric-title">Lowest Training Stalemate Rate</span>
-              <span class="metric-icon">🛡</span>
+              <span class="metric-title">Warm-start optimal moves</span>
+              <span class="metric-icon">🎯</span>
             </div>
             <div class="metric-number" id="lowest-stalemate-rate">—</div>
-            <div class="metric-footer">Avoidance of accidental draws</div>
+            <div class="metric-footer">Held-out tablebase positions</div>
           </div>
 
           <div class="metric-card glass-panel">
             <div class="metric-top">
-              <span class="metric-title">Legacy Baselines</span>
+              <span class="metric-title">Evaluation protocol</span>
               <span class="metric-icon">🔬</span>
             </div>
-            <div class="metric-number">3</div>
-            <div class="metric-footer">Shown for historical comparison; DQN agents are playable above</div>
+            <div class="metric-number">v1</div>
+            <div class="metric-footer">10,000 positions; 150 games per defender</div>
           </div>
         </div>
 
-        <!-- Comparative Matrix Table -->
         <section class="analysis-section glass-panel">
           <div class="section-header-row">
             <div>
-              <h2 class="section-title">📊 Legacy Training Summaries</h2>
-              <p class="section-desc">These are training-episode outcomes, not a controlled head-to-head evaluation. See the solver checkpoint table below for held-out Dueling Double-DQN metrics.</p>
-            </div>
-            <button class="btn btn-secondary btn-sm" id="btn-refresh-metrics">
-              🔄 Refresh Data
-            </button>
-          </div>
-
-          <div class="table-responsive">
-            <table class="benchmark-table" id="benchmark-matrix-table">
-              <thead>
-                <tr>
-                  <th>Algorithm</th>
-                  <th>Family</th>
-                  <th>State Size</th>
-                  <th>Training Mate Rate</th>
-                  <th>Training Stalemate Rate</th>
-                  <th>Training Timeout Rate</th>
-                  <th>Mean Reward</th>
-                  <th>Avg Moves / Ep</th>
-                  <th>Training Time</th>
-                </tr>
-              </thead>
-              <tbody id="benchmark-matrix-tbody">
-                <tr>
-                  <td colspan="9" class="loading-cell">Loading benchmark results from server...</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="analysis-section glass-panel">
-          <div class="section-header-row">
-            <div>
-              <h2 class="section-title">Tablebase-Supervised &amp; RL-Fine-Tuned Models</h2>
-              <p class="section-desc">Solver move-quality and game results are shown separately; validation accuracy is not a game win rate.</p>
+              <h2 class="section-title">Three-Agent Evaluation — Protocol v1</h2>
+              <p class="section-desc">DQN and both Dueling agents use the same held-out KRvK starts and defender protocols. Game outcomes are comparable across all three; tablebase move-quality results are available for the Dueling checkpoints.</p>
             </div>
           </div>
           <div class="table-responsive">
             <table class="benchmark-table">
               <thead>
                 <tr>
-                  <th>Checkpoint</th>
+                  <th>Agent</th>
                   <th>Status</th>
-                  <th>Optimal move (validation)</th>
-                  <th>Keeps win</th>
-                  <th>Win → draw</th>
-                  <th>Win rate vs random</th>
-                  <th>Win rate vs optimal</th>
+                  <th>Optimal moves</th>
+                  <th>Win → draw moves</th>
+                  <th>Vs random outcomes</th>
+                  <th>Vs optimal outcomes</th>
                 </tr>
               </thead>
               <tbody id="solver-models-tbody">
-                <tr><td colspan="7" class="loading-cell">Loading checkpoint and evaluation data…</td></tr>
+                <tr><td colspan="6" class="loading-cell">Loading three-agent evaluation data…</td></tr>
               </tbody>
             </table>
           </div>
+          <p class="section-desc protocol-note">Protocol v1 uses seed 7 and the same attacker-winning held-out starts for each agent. The optimal defender selects a strongest tablebase defense. Results are single-seed measurements, not an Elo rating or a multi-seed statistical claim.</p>
         </section>
 
-        <!-- Charts Grid -->
-        <div class="charts-grid">
-          
-          <!-- Training Reward Curves -->
-          <section class="analysis-section glass-panel">
-            <div class="chart-header">
-              <div>
-                <h3 class="chart-title">📈 Learning Curves (Rolling Reward)</h3>
-                <p class="chart-subtitle">Legacy-agent training reward history; not comparable to tablebase move-quality metrics</p>
-              </div>
-              <div class="chart-legend-row" id="reward-legend">
-                <span class="legend-chip chip-ql"><span class="chip-color color-ql"></span> Q-Learning</span>
-                <span class="legend-chip chip-dqn"><span class="chip-color color-dqn"></span> DQN</span>
-                <span class="legend-chip chip-ppo"><span class="chip-color color-ppo"></span> PPO</span>
-              </div>
+        <section class="analysis-section glass-panel">
+          <div class="chart-header">
+            <div>
+              <h3 class="chart-title">📊 Agent Outcomes vs Optimal Defender</h3>
+              <p class="chart-subtitle">Checkmate wins and the reasons games ended · shared Protocol v1 KRvK starts</p>
             </div>
-            <div class="canvas-wrapper">
-              <canvas id="chart-rewards" width="800" height="340"></canvas>
-            </div>
-          </section>
+          </div>
+          <div class="chart-legend-row outcome-legend" id="agent-outcome-legend" aria-label="Game outcome legend"></div>
+          <div class="canvas-wrapper">
+            <canvas id="chart-agent-outcomes" width="800" height="340" aria-label="Checkmate wins, rook captures, repetitions, horizon draws, and other draws for DQN, Dueling warm-start, and Dueling Double DQN against the optimal defender"></canvas>
+          </div>
+          <p class="section-desc protocol-note">Each bar summarizes 150 games from the same held-out starting positions against the same tablebase-optimal defender. A rook capture is a draw by insufficient material, but is shown separately from repetitions and horizon draws. Zero losses are omitted. DQN's compact 36-action representation differs from the Dueling models, but the game-outcome protocol is shared.</p>
+        </section>
 
-          <!-- Outcome Distribution Stacked Chart -->
-          <section class="analysis-section glass-panel">
-            <div class="chart-header">
-              <div>
-                <h3 class="chart-title">🎯 Final Game Outcome Breakdown</h3>
-                <p class="chart-subtitle">Proportion of checkmate vs stalemate vs 50-move timeout</p>
-              </div>
+        <section class="analysis-section glass-panel">
+          <div class="chart-header">
+            <div>
+              <h3 class="chart-title">📉 Double-DQN Fine-Tuning Validation</h3>
+              <p class="chart-subtitle">Optimal-move rate on the saved 256-position validation sample as environment steps increase</p>
             </div>
-            <div class="outcome-breakdown-container" id="outcome-breakdown-container">
-              <!-- Dynamically populated bars -->
-            </div>
-          </section>
-
-        </div>
+          </div>
+          <div class="canvas-wrapper">
+            <canvas id="chart-checkpoint-quality" width="800" height="300" aria-label="Double-DQN validation optimal-move rate by environment step"></canvas>
+          </div>
+          <p class="section-desc">The fine-tuning validation sample is distinct from the final 10,000-position evaluation set. The retained checkpoint is the best observed snapshot, not the last training step.</p>
+        </section>
 
         <!-- Key Observations & Academic Findings -->
         <section class="analysis-section glass-panel">
           <h3 class="section-title">🔍 Analytical Observations & Findings</h3>
           <div class="findings-grid">
             <div class="finding-card">
-              <div class="finding-badge">1. Tabular vs Deep RL</div>
-              <h4>Existing agents are weak at converting KRvK</h4>
-              <p>The saved 200-game benchmark recorded 2 checkmates each for Q-Learning and DQN (1%), and none for PPO. These results are poor; they motivate the tablebase-supervised Dueling Double-DQN experiment rather than proving that the new model is stronger.</p>
+              <div class="finding-badge">1. Current checkpoint results</div>
+              <h4>The supervised warm-start leads this evaluation</h4>
+              <p>On the same protocol-v1 starts, the tablebase-supervised warm-start scored 94.06% optimal moves and won 82.67% against the optimal defender. This is learned imitation of solver labels, not a pure-RL result.</p>
             </div>
 
             <div class="finding-card">
-              <div class="finding-badge">2. Value vs Policy Methods</div>
-              <h4>Keep comparisons protocol-aware</h4>
-              <p>Training episode metrics, held-out tablebase move accuracy, and game win rates measure different things. The checkpoint comparison reports these separately; no model is called strong until it has been evaluated on the same fixed positions and defender protocol.</p>
+              <div class="finding-badge">2. RL fine-tuning result</div>
+              <h4>Double-DQN fine-tuning did not improve play</h4>
+              <p>The warm-start plus Double DQN reached 91.45% optimal moves and won 56.0% against the optimal defender. It began from the supervised checkpoint; these results do not measure RL trained from scratch.</p>
             </div>
 
             <div class="finding-card">
-              <div class="finding-badge">3. Reward Shaping Impact</div>
-              <h4>Supervised warm start is not proof of RL improvement</h4>
-              <p>The warm-start model imitates exact tablebase labels. Optional Double-DQN fine-tuning starts from that checkpoint and can improve or degrade it. We compare both versions independently and retain the distinction in the results table.</p>
+              <div class="finding-badge">3. Read metrics in context</div>
+              <h4>Move quality and game wins differ</h4>
+              <p>Held-out solver move quality and game W/D/L answer different questions. The 10,000-position move sample is distinct from the game results; read both metrics together rather than treating move accuracy as win rate.</p>
             </div>
           </div>
         </section>
@@ -462,92 +417,85 @@
     <!-- ============================================================== -->
     <main id="view-theory" class="view-container">
       <div class="theory-dashboard">
-        
         <div class="glass-panel theory-card">
-          <h2 class="section-title">♟️ Problem Definition: King + Rook vs King (KRK)</h2>
-          <p class="theory-intro">
-            The King and Rook versus lone King endgame is an elementary chess endgame with a guaranteed theoretical win for the side with the rook within at most 16 moves from any legal position. Despite this theoretical certainty, discovering the mating technique through trial and error represents a rigorous multi-step reinforcement learning challenge requiring coordinated piece movement.
-          </p>
+          <h2 class="section-title">♟️ KRvK Problem and RL Formulation</h2>
+          <p class="theory-intro">The attacker must convert a winning King + Rook versus King position into checkmate while the defender resists. KRvK is the primary experiment. An exact retrograde tablebase provides optimal-move labels and evaluation ground truth, so these results measure learning against a solved small endgame—not whether RL can outperform the solver.</p>
 
           <div class="mdp-grid">
             <div class="mdp-card">
               <div class="mdp-header">
                 <span class="mdp-icon">🔲</span>
-                <h3>State Space $\mathcal{S}$</h3>
+                <h3>State representation</h3>
               </div>
-              <p>Represented in two distinct paradigms:</p>
+              <p>The three playable agents do not all use the same board representation:</p>
               <ul>
-                <li><strong>Tabular Indexing:</strong> Compact integer representation $S = s_{wk} \cdot 64^2 + s_{wr} \cdot 64 + s_{bk}$, spanning exactly $64^3 = 262,144$ state entries.</li>
-                <li><strong>Neural Tensor:</strong> 193-dimensional feature vector containing 3 one-hot planes ($3 \times 64 = 192$ bits) indicating White King, White Rook, and Black King coordinates, concatenated with a normalized move-counter scalar $\frac{t}{100}$.</li>
+                <li><strong>DQN baseline:</strong> A compact 193-value input marks the White king, rook, Black king, and current move count.</li>
+                <li><strong>Dueling checkpoints:</strong> The tablebase warm-start and Double-DQN share 18 binary 8×8 planes viewed from the side to move.</li>
+                <li><strong>Planes:</strong> Encode own and opponent piece types, side to move, castling rights, and the en-passant target.</li>
+                <li><strong>Dueling input size:</strong> 18 × 8 × 8 = 1,152 binary features, processed by a convolutional network.</li>
               </ul>
             </div>
 
             <div class="mdp-card">
               <div class="mdp-header">
                 <span class="mdp-icon">🎮</span>
-                <h3>Action Space $\mathcal{A}$</h3>
+                <h3>Action space and legality</h3>
               </div>
-              <p>36 discrete action indices covering all permissible White piece transitions:</p>
+              <p>Each model uses a different action encoding, but only legal moves can be selected:</p>
               <ul>
-                <li><strong>King Moves (8):</strong> 1 square in all 8 cardinal & diagonal directions.</li>
-                <li><strong>Rook Moves (28):</strong> 4 orthogonal directions $\times$ 7 maximal step distances.</li>
-                <li><strong>Action Masking:</strong> An active binary boolean mask $\mathcal{M}(s) \in \{0, 1\}^{36}$ filters out illegal moves, checks, and square collisions prior to $\text{argmax}$ or softmax sampling.</li>
+                <li><strong>DQN baseline:</strong> 36 compact actions: 8 king directions and 28 rook moves.</li>
+                <li><strong>Dueling checkpoints:</strong> 4,096 from-square/to-square action indices, with a legal-action mask. The encoding supports queen promotion only.</li>
               </ul>
             </div>
 
             <div class="mdp-card">
               <div class="mdp-header">
                 <span class="mdp-icon">🏆</span>
-                <h3>Reward Function $\mathcal{R}(s, a, s')$</h3>
+                <h3>Double-DQN fine-tuning reward</h3>
               </div>
-              <p>Carefully balanced reward shaping balancing sparse goals with dense guidance:</p>
+              <p>Fine-tuning starts from the supervised warm-start. The recorded run uses these base rewards and optional solver-potential shaping:</p>
               <div class="reward-table">
-                <div class="reward-row"><span class="reward-event">Terminal Checkmate</span><span class="reward-val positive">+10.0 + (100 - t) × 0.05</span></div>
-                <div class="reward-row"><span class="reward-event">Terminal Stalemate</span><span class="reward-val negative">-5.0</span></div>
-                <div class="reward-row"><span class="reward-event">Rook Captured (Draw)</span><span class="reward-val negative">-8.0</span></div>
-                <div class="reward-row"><span class="reward-event">Check Delivered</span><span class="reward-val positive">+0.30</span></div>
-                <div class="reward-row"><span class="reward-event">Edge Restriction ($\Delta d_{\text{center}}$)</span><span class="reward-val positive">+0.15 × progress</span></div>
-                <div class="reward-row"><span class="reward-event">King Proximity ($\Delta d_{\text{kings}}$)</span><span class="reward-val positive">+0.05 × progress</span></div>
-                <div class="reward-row"><span class="reward-event">Time Decay / Move Step</span><span class="reward-val neutral">-0.02</span></div>
+                <div class="reward-row"><span class="reward-event">Attacker checkmate</span><span class="reward-val positive">+1</span></div>
+                <div class="reward-row"><span class="reward-event">Attacker checkmated</span><span class="reward-val negative">−1</span></div>
+                <div class="reward-row"><span class="reward-event">Draw</span><span class="reward-val neutral">0</span></div>
+                <div class="reward-row"><span class="reward-event">Non-terminal step</span><span class="reward-val neutral">−0.001</span></div>
+                <div class="reward-row"><span class="reward-event">Optional shaping</span><span class="reward-val">γΦ(s′) − Φ(s)</span></div>
               </div>
+              <p>For a nonterminal solver-winning state, Φ(s) = 1 − min(DTM, DTMmax) / DTMmax; it is zero for terminal, drawn, or losing states. A supervised anchor loss (weight 0.1 in the recorded run) regularizes updates toward solver labels.</p>
             </div>
 
             <div class="mdp-card">
               <div class="mdp-header">
                 <span class="mdp-icon">⏱️</span>
-                <h3>50-Move Rule Constraint</h3>
+                <h3>Transition and episode end</h3>
               </div>
-              <p>Under FIDE rules, if 50 consecutive full moves (100 half-moves) elapse without a capture or pawn move, the game is declared an immediate Draw. This imposes a strict finite horizon $T=100$ where failure to checkmate results in an episode timeout, penalizing stalled policies.</p>
+              <p>One learning transition selects an attacker move and, if the game remains active, advances the defender reply. Training uses a 100-ply horizon. Checkmate, stalemate, insufficient material, and claimable draws terminate; reaching the horizon is a truncation, not a checkmate.</p>
             </div>
           </div>
         </div>
 
-        <!-- Algorithm Architecture Cards -->
         <div class="glass-panel theory-card">
-          <h2 class="section-title">🧠 Algorithmic Architectures Compared</h2>
-          
+          <h2 class="section-title">🧠 How the Current Playable Agents Work</h2>
           <div class="algorithms-showcase">
             <div class="algo-detail-card">
-              <div class="algo-badge ql-badge">Tabular RL</div>
-              <h3>Q-Learning</h3>
-              <p class="algo-formula">$$Q(s, a) \leftarrow Q(s, a) + \alpha \left[ r + \gamma \max_{a'} Q(s', a') - Q(s, a) \right]$$</p>
-              <p>Classic model-free off-policy control using a memory-efficient sparse hash table. Exploits greedy selection with exponential decay $\epsilon$-greedy exploration ($\epsilon_0=1.0 \to \epsilon_{\min}=0.05$). Guaranteed asymptotic convergence to the Bellman optimality equation in finite MDPs.</p>
+              <div class="algo-badge dqn-badge">Reward-trained baseline</div>
+              <h3>DQN</h3>
+              <p>Deep Q-Network. It learns by trying moves and receiving rewards or penalties. The network estimates how useful each move may be, and replay memory lets it learn again from earlier games.</p>
             </div>
 
             <div class="algo-detail-card">
-              <div class="algo-badge dqn-badge">Value Approximation</div>
-              <h3>Deep Q-Network (DQN)</h3>
-              <p class="algo-formula">$$\mathcal{L}(\theta) = \mathbb{E}\left[ \left( r + \gamma \max_{a'} Q(s', a'; \theta^-) - Q(s, a; \theta) \right)^2 \right]$$</p>
-              <p>Feedforward deep neural architecture ($193 \to 256 \to 128 \to 36$) parameterized by weights $\theta$. Incorporates an Experience Replay Buffer (capacity 50,000 transitions) and periodic Target Network updates ($\tau=1000$ steps) to break temporal correlation and stabilize gradient variance.</p>
+              <div class="algo-badge warmstart-badge">Supervised learning — not RL</div>
+              <h3>Dueling network warm-start</h3>
+              <p>A solver checks each position and supplies the best move. The Dueling network learns to copy those examples. This is like studying an answer key, so it is supervised learning rather than trial-and-error RL.</p>
             </div>
 
             <div class="algo-detail-card">
-              <div class="algo-badge ppo-badge">Policy Gradient</div>
-              <h3>Proximal Policy Optimization (PPO)</h3>
-              <p class="algo-formula">$$L^{CLIP}(\theta) = \hat{\mathbb{E}}_t \left[ \min\left( r_t(\theta)\hat{A}_t, \, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon)\hat{A}_t \right) \right]$$</p>
-              <p>Actor-Critic architecture sharing a 128-unit representation layer, outputting both policy logits $\pi_\theta(a|s)$ and state value estimates $V_\phi(s)$. Utilizes Generalized Advantage Estimation (GAE, $\lambda=0.95$), mini-batch stochastic gradient descent, and entropy regularization.</p>
+              <div class="algo-badge ppo-badge">RL fine-tuning</div>
+              <h3>Dueling Double DQN</h3>
+              <p>Starts from the solver-trained Dueling network, then practices with rewards. One network picks the next legal move; a second, slower-updated network scores it. In this experiment the extra practice did not improve the measured results.</p>
             </div>
           </div>
+          <p class="section-desc formulation-caveat">In simple terms: DQN learns from reward feedback alone; the warm-start learns by copying the tablebase; Double DQN starts by copying the tablebase and then learns from reward feedback.</p>
         </div>
 
       </div>
@@ -555,6 +503,6 @@
 
   </div>
 
-  <script src="/static/app.js?v=20261019-model-picker"></script>
+  <script src="/static/app.js?v=20261020-draw-reasons"></script>
 </body>
 </html>
