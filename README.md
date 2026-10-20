@@ -8,7 +8,7 @@ KRvK is small enough to have an exact endgame tablebase. The tablebase supplies 
 
 ## Lab rubric
 
-### 1. Problem definition and RL formulation — 5 marks
+### 1. Problem definition and RL formulation 
 
 **Problem.** Convert a winning KRvK position into checkmate while the opposing king tries to avoid it. This is a fully observable, turn-based sequential decision problem. Rewards are delayed until terminal outcomes, and many nominal moves are illegal.
 
@@ -26,7 +26,7 @@ KRvK is small enough to have an exact endgame tablebase. The tablebase supplies 
 | Fine-tuning reward | The recorded Double-DQN setup uses +1 for attacker checkmate, −1 for attacker loss, 0 for a draw, and −0.001 per nonterminal step. Optional potential shaping is `γΦ(s′) − Φ(s)`; a supervised anchor loss regularizes updates toward tablebase labels. |
 | Episode end | Checkmate, stalemate, insufficient material, claimable draw, or the 100-ply training horizon. Reaching the horizon is a truncation, not a checkmate. |
 
-### 2. Implementation and working RL agent — 10 marks
+### 2. Implementation and working RL agent
 
 #### Algorithms and implementation
 
@@ -62,7 +62,7 @@ python scripts\run_server.py --port 8000
 
 Open <http://127.0.0.1:8000>. Keep the page and server on the same port. PyTorch is required to load the Dueling checkpoints.
 
-### 3. Results and analysis — 10 marks
+### 3. Results and analysis
 
 #### Evaluation protocol and metrics
 
