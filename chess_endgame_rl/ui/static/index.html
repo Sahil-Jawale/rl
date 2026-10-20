@@ -7,8 +7,8 @@
   <meta name="description" content="Play King + Rook vs King chess endgames against DQN agents, with solver-based analysis and model comparisons." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css?v=20261020-three-agent-outcomes" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v=20261020-project-rubric" />
 </head>
 <body class="theme-wood">
   <div id="app" class="app-layout">
@@ -33,10 +33,10 @@
             <span class="tab-icon">⚔</span> Play Agent
           </button>
           <button class="nav-tab" data-tab="analysis" id="tab-btn-analysis" role="tab" aria-selected="false">
-            <span class="tab-icon">📊</span> Comparative Analysis
+            <span class="tab-icon">📊</span> Results
           </button>
           <button class="nav-tab" data-tab="theory" id="tab-btn-theory" role="tab" aria-selected="false">
-            <span class="tab-icon">📖</span> RL Formulation
+            <span class="tab-icon">📖</span> Project &amp; rubric
           </button>
         </nav>
       </div>
@@ -46,10 +46,10 @@
         <div class="theme-dropdown-wrapper">
           <label for="theme-select" class="visually-hidden">Board Theme</label>
           <select id="theme-select" class="control-select theme-select" title="Change Board Theme">
-            <option value="theme-wood">🎨 Wood (Classic)</option>
-            <option value="theme-emerald">🌿 Emerald Green</option>
-            <option value="theme-blue">🌊 Tournament Blue</option>
-            <option value="theme-dark">🌑 Dark Midnight</option>
+            <option value="theme-wood">Wood · Classic</option>
+            <option value="theme-emerald">Emerald</option>
+            <option value="theme-blue">Tournament blue</option>
+            <option value="theme-dark">Midnight</option>
           </select>
         </div>
 
@@ -60,8 +60,8 @@
 
         <!-- Status Pill -->
         <div class="server-status-pill" id="server-status" title="API Status">
-          <span class="status-indicator-dot online"></span>
-          <span class="status-indicator-text">Online</span>
+          <span class="status-indicator-dot"></span>
+          <span class="status-indicator-text">Checking</span>
         </div>
       </div>
     </header>
@@ -79,21 +79,18 @@
           <div class="player-bar opponent-bar" id="opponent-bar">
             <div class="player-profile">
               <div class="avatar-ring bot-avatar">
-                <span class="avatar-emoji">🤖</span>
+                <span class="avatar-emoji">AI</span>
                 <span class="piece-indicator white-piece">♔♖</span>
               </div>
               <div class="player-details">
                 <div class="player-name-row">
                   <span class="player-name" id="agent-display-name">RL Agent</span>
-                  <span class="agent-tag" id="agent-type-tag">DQN</span>
                 </div>
-                <div class="player-subtext" id="agent-subtext">White • King + Rook (Checkmate Hunter)</div>
+                <div class="player-subtext">White · King + Rook</div>
               </div>
             </div>
 
-            <!-- Material Advantage / Turn Indicator -->
             <div class="player-status-group">
-              <span class="material-advantage" id="white-material">+5 (Rook)</span>
               <div class="turn-bubble" id="white-turn-indicator">
                 <span class="pulse-dot"></span> White's Turn
               </div>
@@ -152,15 +149,14 @@
           <div class="player-bar user-bar" id="user-bar">
             <div class="player-profile">
               <div class="avatar-ring user-avatar">
-                <span class="avatar-emoji">👤</span>
+                <span class="avatar-emoji">YOU</span>
                 <span class="piece-indicator black-piece">♚</span>
               </div>
               <div class="player-details">
                 <div class="player-name-row">
-                  <span class="player-name">You (Defender)</span>
-                  <span class="user-badge">Survivor</span>
+                  <span class="player-name">You</span>
                 </div>
-                <div class="player-subtext">Black • Lone King • Goal: Survive 50 Moves</div>
+                <div class="player-subtext">Black · Lone King</div>
               </div>
             </div>
 
@@ -174,7 +170,7 @@
           <!-- 50-Move Survival Progress Bar -->
           <div class="survival-tracker-card">
             <div class="tracker-header">
-              <span class="tracker-title">🎯 50-Move Rule Survival Gauge</span>
+              <span class="tracker-title">50-move survival</span>
               <span class="tracker-count" id="survival-count-text">0 / 50 Moves</span>
             </div>
             <div class="tracker-progress-track">
@@ -195,8 +191,7 @@
           <!-- Agent Configuration Card -->
           <div class="sidebar-card">
             <div class="card-title-row">
-              <h3 class="sidebar-heading">⚙️ Match Settings</h3>
-              <span class="info-pill" id="agent-trained-indicator">Model Loaded</span>
+              <h3 class="sidebar-heading">Match settings</h3>
             </div>
             
             <div class="form-group">
@@ -210,39 +205,23 @@
               <p class="form-help" id="agent-availability" role="status">Checking trained checkpoints…</p>
             </div>
 
-            <div class="agent-analysis" id="agent-analysis" aria-live="polite">
-              Start a game to see move and tablebase details.
-            </div>
-
             <div class="match-actions-grid">
               <button class="btn btn-primary" id="btn-new-game" title="Generate new KRK position">
-                <span class="btn-icon">⚔</span> New Game
-              </button>
-              <button class="btn btn-secondary" id="btn-hint" title="Suggest best King move">
-                <span class="btn-icon">💡</span> Hint
+                New game
               </button>
               <button class="btn btn-secondary" id="btn-flip" title="Flip board orientation">
-                <span class="btn-icon">🔄</span> Flip
+                Flip board
               </button>
               <button class="btn btn-outline-danger" id="btn-resign" title="Resign current game">
-                <span class="btn-icon">🏳</span> Resign
+                Resign
               </button>
-            </div>
-
-            <!-- Hint Display Box -->
-            <div id="hint-box" class="hint-box hidden">
-              <div class="hint-header">
-                <span class="hint-badge">Defensive Hint</span>
-                <button class="hint-close" id="btn-hint-close">&times;</button>
-              </div>
-              <p class="hint-text" id="hint-text">Loading defensive recommendation...</p>
             </div>
           </div>
 
           <!-- Live Move Notation History (Lichess 2-Column Table) -->
           <div class="sidebar-card move-history-card">
             <div class="card-title-row">
-              <h3 class="sidebar-heading">📋 Move Notation</h3>
+              <h3 class="sidebar-heading">Move notation</h3>
               <span class="move-badge" id="half-move-count">0 plies</span>
             </div>
 
@@ -273,7 +252,7 @@
 
           <!-- Quick Objective & Endgame Rules -->
           <div class="sidebar-card rules-card">
-            <h4 class="rules-heading">🎯 KRK Win Conditions</h4>
+            <h4 class="rules-heading">KRvK win conditions</h4>
             <ul class="rules-list">
               <li><strong>Agent's Goal:</strong> Box your King against the board boundary and deliver checkmate (♔♖ vs ♚).</li>
               <li><strong>Your Goal:</strong> Evade restriction for <strong>50 full moves</strong> or induce a <strong>Stalemate / Rook capture</strong>.</li>
@@ -297,7 +276,7 @@
           <div class="metric-card glass-panel">
             <div class="metric-top">
               <span class="metric-title">Warm-start vs optimal defender</span>
-              <span class="metric-icon">🏆</span>
+              <span class="metric-icon" aria-hidden="true"></span>
             </div>
             <div class="metric-number" id="best-checkmate-rate">—</div>
             <div class="metric-footer" id="best-checkmate-agent">Loading evaluation...</div>
@@ -306,7 +285,7 @@
           <div class="metric-card glass-panel">
             <div class="metric-top">
               <span class="metric-title">Fine-tuned vs optimal defender</span>
-              <span class="metric-icon">🧪</span>
+              <span class="metric-icon" aria-hidden="true"></span>
             </div>
             <div class="metric-number" id="fastest-mate-moves">—</div>
             <div class="metric-footer">Warm-start + Double DQN</div>
@@ -315,7 +294,7 @@
           <div class="metric-card glass-panel">
             <div class="metric-top">
               <span class="metric-title">Warm-start optimal moves</span>
-              <span class="metric-icon">🎯</span>
+              <span class="metric-icon" aria-hidden="true"></span>
             </div>
             <div class="metric-number" id="lowest-stalemate-rate">—</div>
             <div class="metric-footer">Held-out tablebase positions</div>
@@ -324,7 +303,7 @@
           <div class="metric-card glass-panel">
             <div class="metric-top">
               <span class="metric-title">Evaluation protocol</span>
-              <span class="metric-icon">🔬</span>
+              <span class="metric-icon" aria-hidden="true"></span>
             </div>
             <div class="metric-number">v1</div>
             <div class="metric-footer">10,000 positions; 150 games per defender</div>
@@ -361,7 +340,7 @@
         <section class="analysis-section glass-panel">
           <div class="chart-header">
             <div>
-              <h3 class="chart-title">📊 Agent Outcomes vs Optimal Defender</h3>
+              <h3 class="chart-title">Agent outcomes vs optimal defender</h3>
               <p class="chart-subtitle">Checkmate wins and the reasons games ended · shared Protocol v1 KRvK starts</p>
             </div>
           </div>
@@ -375,7 +354,7 @@
         <section class="analysis-section glass-panel">
           <div class="chart-header">
             <div>
-              <h3 class="chart-title">📉 Double-DQN Fine-Tuning Validation</h3>
+              <h3 class="chart-title">Double-DQN fine-tuning validation</h3>
               <p class="chart-subtitle">Optimal-move rate on the saved 256-position validation sample as environment steps increase</p>
             </div>
           </div>
@@ -387,7 +366,7 @@
 
         <!-- Key Observations & Academic Findings -->
         <section class="analysis-section glass-panel">
-          <h3 class="section-title">🔍 Analytical Observations & Findings</h3>
+          <h3 class="section-title">Analytical observations & findings</h3>
           <div class="findings-grid">
             <div class="finding-card">
               <div class="finding-badge">1. Current checkpoint results</div>
@@ -416,93 +395,77 @@
     <!-- TAB 3: RL FORMULATION & MATHEMATICAL FOUNDATIONS               -->
     <!-- ============================================================== -->
     <main id="view-theory" class="view-container">
-      <div class="theory-dashboard">
-        <div class="glass-panel theory-card">
-          <h2 class="section-title">♟️ KRvK Problem and RL Formulation</h2>
-          <p class="theory-intro">The attacker must convert a winning King + Rook versus King position into checkmate while the defender resists. KRvK is the primary experiment. An exact retrograde tablebase provides optimal-move labels and evaluation ground truth, so these results measure learning against a solved small endgame—not whether RL can outperform the solver.</p>
-
-          <div class="mdp-grid">
-            <div class="mdp-card">
-              <div class="mdp-header">
-                <span class="mdp-icon">🔲</span>
-                <h3>State representation</h3>
-              </div>
-              <p>The three playable agents do not all use the same board representation:</p>
-              <ul>
-                <li><strong>DQN baseline:</strong> A compact 193-value input marks the White king, rook, Black king, and current move count.</li>
-                <li><strong>Dueling checkpoints:</strong> The tablebase warm-start and Double-DQN share 18 binary 8×8 planes viewed from the side to move.</li>
-                <li><strong>Planes:</strong> Encode own and opponent piece types, side to move, castling rights, and the en-passant target.</li>
-                <li><strong>Dueling input size:</strong> 18 × 8 × 8 = 1,152 binary features, processed by a convolutional network.</li>
-              </ul>
-            </div>
-
-            <div class="mdp-card">
-              <div class="mdp-header">
-                <span class="mdp-icon">🎮</span>
-                <h3>Action space and legality</h3>
-              </div>
-              <p>Each model uses a different action encoding, but only legal moves can be selected:</p>
-              <ul>
-                <li><strong>DQN baseline:</strong> 36 compact actions: 8 king directions and 28 rook moves.</li>
-                <li><strong>Dueling checkpoints:</strong> 4,096 from-square/to-square action indices, with a legal-action mask. The encoding supports queen promotion only.</li>
-              </ul>
-            </div>
-
-            <div class="mdp-card">
-              <div class="mdp-header">
-                <span class="mdp-icon">🏆</span>
-                <h3>Double-DQN fine-tuning reward</h3>
-              </div>
-              <p>Fine-tuning starts from the supervised warm-start. The recorded run uses these base rewards and optional solver-potential shaping:</p>
-              <div class="reward-table">
-                <div class="reward-row"><span class="reward-event">Attacker checkmate</span><span class="reward-val positive">+1</span></div>
-                <div class="reward-row"><span class="reward-event">Attacker checkmated</span><span class="reward-val negative">−1</span></div>
-                <div class="reward-row"><span class="reward-event">Draw</span><span class="reward-val neutral">0</span></div>
-                <div class="reward-row"><span class="reward-event">Non-terminal step</span><span class="reward-val neutral">−0.001</span></div>
-                <div class="reward-row"><span class="reward-event">Optional shaping</span><span class="reward-val">γΦ(s′) − Φ(s)</span></div>
-              </div>
-              <p>For a nonterminal solver-winning state, Φ(s) = 1 − min(DTM, DTMmax) / DTMmax; it is zero for terminal, drawn, or losing states. A supervised anchor loss (weight 0.1 in the recorded run) regularizes updates toward solver labels.</p>
-            </div>
-
-            <div class="mdp-card">
-              <div class="mdp-header">
-                <span class="mdp-icon">⏱️</span>
-                <h3>Transition and episode end</h3>
-              </div>
-              <p>One learning transition selects an attacker move and, if the game remains active, advances the defender reply. Training uses a 100-ply horizon. Checkmate, stalemate, insufficient material, and claimable draws terminate; reaching the horizon is a truncation, not a checkmate.</p>
-            </div>
+      <article class="project-readme">
+        <header class="project-hero">
+          <p class="project-kicker">RL MINI PROJECT · LAB RUBRIC · 25 MARKS</p>
+          <h1>Learning to convert KRvK</h1>
+          <p>A small, reproducible study of reinforcement learning for King + Rook versus King. The attacker seeks checkmate; the lone-king defender resists.</p>
+          <div class="project-tags" aria-label="Project summary">
+            <span>3 playable agents</span><span>Exact endgame ground truth</span><span>Local interactive demo</span>
           </div>
-        </div>
+        </header>
 
-        <div class="glass-panel theory-card">
-          <h2 class="section-title">🧠 How the Current Playable Agents Work</h2>
-          <div class="algorithms-showcase">
-            <div class="algo-detail-card">
-              <div class="algo-badge dqn-badge">Reward-trained baseline</div>
-              <h3>DQN</h3>
-              <p>Deep Q-Network. It learns by trying moves and receiving rewards or penalties. The network estimates how useful each move may be, and replay memory lets it learn again from earlier games.</p>
-            </div>
-
-            <div class="algo-detail-card">
-              <div class="algo-badge warmstart-badge">Supervised learning — not RL</div>
-              <h3>Dueling network warm-start</h3>
-              <p>A solver checks each position and supplies the best move. The Dueling network learns to copy those examples. This is like studying an answer key, so it is supervised learning rather than trial-and-error RL.</p>
-            </div>
-
-            <div class="algo-detail-card">
-              <div class="algo-badge ppo-badge">RL fine-tuning</div>
-              <h3>Dueling Double DQN</h3>
-              <p>Starts from the solver-trained Dueling network, then practices with rewards. One network picks the next legal move; a second, slower-updated network scores it. In this experiment the extra practice did not improve the measured results.</p>
-            </div>
+        <section class="readme-section" id="rubric-problem">
+          <div class="rubric-heading">
+            <span class="rubric-number">01</span>
+            <div><p>5 MARKS</p><h2>Problem definition &amp; RL formulation</h2></div>
           </div>
-          <p class="section-desc formulation-caveat">In simple terms: DQN learns from reward feedback alone; the warm-start learns by copying the tablebase; Double DQN starts by copying the tablebase and then learns from reward feedback.</p>
-        </div>
+          <p>KRvK is a fully observable, sequential decision problem with many illegal nominal moves and sparse terminal outcomes. It is small enough for an exact tablebase to provide labels and an objective evaluation reference.</p>
+          <div class="readme-table-wrap">
+            <table class="readme-table">
+              <tbody>
+                <tr><th>Environment</th><td>White K+R attacks; Black K defends. A training turn is an attacker move followed by a defender reply. Games end on checkmate, draw, or the 50-move limit.</td></tr>
+                <tr><th>State</th><td>DQN: 193 values for three piece planes plus move count. Dueling agents: 18 × 8 × 8 side-to-move planes.</td></tr>
+                <tr><th>Action</th><td>DQN: 36 compact moves. Dueling agents: from-square × 64 + to-square, with a legal-move mask.</td></tr>
+                <tr><th>Reward</th><td>DQN: +10 checkmate (+speed bonus), −5 stalemate, −8 rook capture, −0.02 per step, +0.3 for check, king-distance shaping, and −3 at the move limit. Double-DQN fine-tuning uses +1 checkmate, −1 loss, 0 draw, −0.001 per step, and optional potential shaping.</td></tr>
+                <tr><th>Why RL?</th><td>To study sequential decisions, delayed outcomes, and constrained actions in a controlled task with known ground truth. The solved endgame is a research testbed, not evidence RL beats the solver.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-      </div>
+        <section class="readme-section" id="rubric-implementation">
+          <div class="rubric-heading">
+            <span class="rubric-number">02</span>
+            <div><p>10 MARKS</p><h2>Implementation &amp; working RL agent</h2></div>
+          </div>
+          <p>Three selectable agents show different learning stages; only the DQN baseline learns from reward from scratch. The warm-start is supervised learning from tablebase labels, and Double DQN fine-tunes that checkpoint.</p>
+          <div class="readme-table-wrap">
+            <table class="readme-table">
+              <thead><tr><th>Agent</th><th>Method</th><th>Role in the project</th></tr></thead>
+              <tbody>
+                <tr><td>DQN</td><td>Reward-trained from scratch</td><td>RL baseline</td></tr>
+                <tr><td>Dueling warm-start</td><td>Supervised tablebase imitation</td><td>Reference policy; not an RL result</td></tr>
+                <tr><td>Warm-start + Double DQN</td><td>Reward-driven fine-tuning</td><td>Tests whether RL improves the reference policy</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="project-note">DQN learns with reward feedback and replay; the warm-start imitates tablebase labels; Double DQN fine-tunes it with reward feedback. Hyperparameters are documented defaults; no systematic tuning sweep was run. The checkpoints are included, so training is not required to run the demo. Select an available agent under <strong>Play</strong>; use <strong>Results</strong> for the evaluation protocol and comparisons.</p>
+        </section>
+
+        <section class="readme-section" id="rubric-results">
+          <div class="rubric-heading">
+            <span class="rubric-number">03</span>
+            <div><p>10 MARKS</p><h2>Results &amp; analysis</h2></div>
+          </div>
+          <p>Protocol v1 uses seed 7, 150 games per defender, and 10,000 held-out positions for Dueling move quality.</p>
+          <div class="readme-table-wrap">
+            <table class="readme-table">
+              <thead><tr><th>Agent</th><th>Optimal moves</th><th>Wins vs optimal defender</th></tr></thead>
+              <tbody>
+                <tr><td>DQN</td><td>Not comparable</td><td>0 / 150</td></tr>
+                <tr><td>Tablebase warm-start</td><td>94.06%</td><td>124 / 150</td></tr>
+                <tr><td>Warm-start + Double DQN</td><td>91.45%</td><td>84 / 150</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="project-note">The warm-start leads this recorded run; fine-tuning reduced the measured results. These are single-seed KRvK results, not a multi-seed claim or a full-chess rating. The <strong>Results</strong> tab contains outcome breakdowns, charts, and comparisons against both defenders.</p>
+        </section>
+      </article>
     </main>
 
   </div>
 
-  <script src="/static/app.js?v=20261020-draw-reasons"></script>
+  <script src="/static/app.js?v=20261020-project-rubric"></script>
 </body>
 </html>

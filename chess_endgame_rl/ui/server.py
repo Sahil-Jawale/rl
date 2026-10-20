@@ -145,8 +145,8 @@ def _agent_catalog() -> list[dict[str, str | bool]]:
     return agents
 
 
-def _dueling_move(agent, board: chess.Board) -> tuple[chess.Move, dict]:
-    """Select a legal move and report its Q-value and available solver context."""
+def _dueling_move(agent, board: chess.Board) -> chess.Move:
+    """Select a legal move using the Dueling network's legal-action mask."""
     import torch
 
     from chess_endgame_rl.env.encoding import encode_board, index_to_move, legal_mask
@@ -160,16 +160,7 @@ def _dueling_move(agent, board: chess.Board) -> tuple[chess.Move, dict]:
     move = index_to_move(action, board)
     if move not in board.legal_moves:
         raise RuntimeError(f"Dueling Double DQN selected illegal action {action}.")
-    analysis: dict[str, object] = {"q_value": float(q_values[0, action].item())}
-
-    tablebase_path = PROJECT_ROOT / "data" / "tablebases" / "krk.npz"
-    if tablebase_path.is_file():
-        tablebase = _krk_tablebase()
-        wdl, dtm = tablebase.lookup(board)
-        if wdl == 1:
-            analysis["solver_dtm"] = dtm
-            analysis["optimal_move"] = move in tablebase.optimal_moves(board)
-    return move, analysis
+    return move
 
 
 def _krk_tablebase():
@@ -365,9 +356,7 @@ def new_game(req: NewGameRequest):
     # Agent makes the first move (White)
     move_count = 0
     move_history = []
-    agent_move_uci, agent_analysis = _agent_make_move(
-        agent, req.agent_name, board, move_count
-    )
+    agent_move_uci = _agent_make_move(agent, req.agent_name, board, move_count)
     if agent_move_uci:
         agent_move = chess.Move.from_uci(agent_move_uci)
         agent_san = board.san(agent_move)
@@ -387,14 +376,12 @@ def new_game(req: NewGameRequest):
         "agent_name": req.agent_name,
         "move_count": move_count,
         "move_history": move_history,
-        "agent_analysis": agent_analysis,
     }
 
     state = _board_to_dict(board, move_count)
     state["game_id"] = game_id
     state["agent_name"] = req.agent_name
     state["agent_move"] = agent_move_uci
-    state["agent_analysis"] = agent_analysis
     state["move_history"] = games[game_id]["move_history"]
     return state
 
@@ -449,14 +436,11 @@ def make_move(req: MoveRequest):
         state["user_move"] = req.move_uci
         state["status"] = status
         state["move_history"] = game["move_history"]
-        state["agent_analysis"] = game.get("agent_analysis", {})
         return state
 
     # Agent responds (White move)
     agent = _get_agent(agent_name)
-    agent_move_uci, agent_analysis = _agent_make_move(
-        agent, agent_name, board, game["move_count"]
-    )
+    agent_move_uci = _agent_make_move(agent, agent_name, board, game["move_count"])
     if agent_move_uci:
         agent_move = chess.Move.from_uci(agent_move_uci)
         agent_san = board.san(agent_move)
@@ -471,79 +455,13 @@ def make_move(req: MoveRequest):
             "move_number": game["move_count"] // 2,
         })
 
-    game["agent_analysis"] = agent_analysis
     state = _board_to_dict(board, game["move_count"])
     state["game_id"] = req.game_id
     state["agent_name"] = agent_name
     state["agent_move"] = agent_move_uci
-    state["agent_analysis"] = agent_analysis
     state["user_move"] = req.move_uci
     state["move_history"] = game["move_history"]
     return state
-
-
-class HintRequest(BaseModel):
-    game_id: str
-
-
-@app.post("/api/game/hint")
-def get_hint(req: HintRequest):
-    """Provide a defensive hint for the user (Black King)."""
-    if req.game_id not in games:
-        raise HTTPException(status_code=404, detail="Game not found")
-
-    game = games[req.game_id]
-    board = game["board"]
-    if board.turn != chess.BLACK:
-        return {"hint_move": None, "explanation": "Wait for the RL agent to move first."}
-
-    legal_moves = list(board.legal_moves)
-    if not legal_moves:
-        return {"hint_move": None, "explanation": "No legal moves available."}
-
-    best_move = legal_moves[0]
-    best_score = -9999.0
-    best_explanation = "Move toward the center to avoid the edge."
-
-    for move in legal_moves:
-        if board.is_capture(move):
-            return {
-                "hint_move": move.uci(),
-                "from": chess.square_name(move.from_square),
-                "to": chess.square_name(move.to_square),
-                "explanation": "Capture the White Rook! This causes immediate insufficient material and secures a draw for you!"
-            }
-
-        to_sq = move.to_square
-        f = chess.square_file(to_sq)
-        r = chess.square_rank(to_sq)
-        dist_from_rim = min(f, 7 - f, r, 7 - r)
-
-        board.push(move)
-        can_mate = any(board.is_legal(m) and (board.push(m) or True) and board.is_checkmate() and (board.pop() or True) for m in board.legal_moves)
-        in_check = board.is_check()
-        board.pop()
-
-        score = dist_from_rim * 10.0
-        if can_mate:
-            score -= 500.0
-        if in_check:
-            score -= 5.0
-
-        if score > best_score:
-            best_score = score
-            best_move = move
-            if dist_from_rim > 0:
-                best_explanation = f"Step into {chess.square_name(to_sq)} (centerward) to stay away from the board border and delay the mate net."
-            else:
-                best_explanation = f"Step to {chess.square_name(to_sq)} to maintain maximum mobility along the rank/file."
-
-    return {
-        "hint_move": best_move.uci(),
-        "from": chess.square_name(best_move.from_square),
-        "to": chess.square_name(best_move.to_square),
-        "explanation": best_explanation,
-    }
 
 
 class ResignRequest(BaseModel):
@@ -562,7 +480,6 @@ def resign_game(req: ResignRequest):
     state["game_id"] = req.game_id
     state["agent_name"] = game["agent_name"]
     state["move_history"] = game["move_history"]
-    state["agent_analysis"] = game.get("agent_analysis", {})
     return state
 
 
@@ -581,27 +498,26 @@ def _check_game_status(board: chess.Board, move_count: int) -> str:
 
 def _agent_make_move(
     agent, agent_name: str, board: chess.Board, move_count: int = 0
-) -> tuple[str | None, dict]:
+) -> str | None:
     """Have the RL agent select and return a move in UCI format."""
     if board.turn != chess.WHITE:
-        return None, {}
+        return None
 
     legal_moves = list(board.legal_moves)
     if not legal_moves:
-        return None, {}
+        return None
     if agent is None:
         raise HTTPException(
             status_code=503,
             detail=f"{agent_name} model is unavailable. Train the model before starting a game.",
         )
 
-    analysis: dict = {}
     if agent_name in (
         "Dueling network (tablebase warm-start)",
         "Dueling Double DQN (fine-tuned)",
     ):
-        move, analysis = _dueling_move(agent, board)
-        return move.uci(), analysis
+        move = _dueling_move(agent, board)
+        return move.uci()
     if agent_name == "Q-Learning":
         action_id = agent.select_action_greedy(
             state_index(board), legal_action_mask(board, "krk")
@@ -621,7 +537,7 @@ def _agent_make_move(
     move = action_to_move(board, action_id)
     if move is None or move not in legal_moves:
         raise RuntimeError(f"{agent_name} selected an invalid action: {action_id}")
-    return move.uci(), analysis
+    return move.uci()
 
 
 # ======================================================================

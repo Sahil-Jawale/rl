@@ -22,21 +22,38 @@ def test_root_disables_html_caching_and_uses_versioned_ui_assets():
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
-    assert "/static/app.js?v=20261020-draw-reasons" in response.text
-    assert "Dueling network warm-start" in response.text
-    assert "Non-terminal step" in response.text
-    assert "Agent Outcomes vs Optimal Defender" in response.text
+    assert "/static/app.js?v=20261020-project-rubric" in response.text
+    assert "/static/styles.css?v=20261020-project-rubric" in response.text
+    assert "Supervised tablebase imitation" in response.text
+    assert "Warm-start + Double DQN" in response.text
+    assert "Problem definition &amp; RL formulation" in response.text
+    assert "Implementation &amp; working RL agent" in response.text
+    assert "Results &amp; analysis" in response.text
+    assert "25 MARKS" in response.text
+    assert "single-seed KRvK results" in response.text
+    assert "Viva" not in response.text
+    assert 'id="server-status"' in response.text
+    assert "Checking" in response.text
+    assert "Agent outcomes vs optimal defender" in response.text
     assert 'id="chart-agent-outcomes"' in response.text
     assert "rook captures, repetitions" in response.text
     assert "Zero losses are omitted" in response.text
     assert "Win / D / L" not in response.text
     assert "Q-Learning" not in response.text
     assert "PPO" not in response.text
-    assert "Reward-trained baseline" in response.text
-    assert "DQN learns from reward feedback alone" in response.text
-    assert "compact 193-value input" in response.text
-    assert "36 compact actions" in response.text
-    assert "copying the tablebase" in response.text
+    assert "Reward-trained from scratch" in response.text
+    assert "193 values" in response.text
+    assert "36 compact moves" in response.text
+    assert 'id="agent-analysis"' not in response.text
+    assert 'id="btn-hint"' not in response.text
+    assert 'id="hint-box"' not in response.text
+    assert "Tablebase DTM:" not in response.text
+
+
+def test_hint_endpoint_is_removed_with_the_hint_ui():
+    response = client.post("/api/game/hint", json={"game_id": "unused"})
+
+    assert response.status_code == 404
 
 
 def test_scenarios_endpoint():
@@ -80,8 +97,7 @@ def test_agent_catalog_marks_only_existing_checkpoints_available(tmp_path, monke
     )
 
 
-def test_dueling_ui_inference_returns_a_legal_move_with_q_value(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "PROJECT_ROOT", tmp_path)
+def test_dueling_ui_inference_returns_a_legal_move(tmp_path, monkeypatch):
     monkeypatch.setattr(server, "MODELS_DIR", tmp_path / "models")
     monkeypatch.setattr(server, "_loaded_agents", {})
     monkeypatch.setattr(server, "_loaded_agent_mtimes", {})
@@ -99,10 +115,9 @@ def test_dueling_ui_inference_returns_a_legal_move_with_q_value(tmp_path, monkey
 
     loaded_model = server._get_agent("Dueling network (tablebase warm-start)")
     assert isinstance(loaded_model, DuelingNet)
-    move, analysis = server._dueling_move(loaded_model, board)
+    move = server._dueling_move(loaded_model, board)
 
     assert move in board.legal_moves
-    assert isinstance(analysis["q_value"], float)
 
 
 def test_comparison_endpoint_reports_solver_model_rows():

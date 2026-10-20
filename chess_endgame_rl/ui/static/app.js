@@ -3,8 +3,8 @@
  * CHESS ENDGAME RL — INTERACTIVE LICHESS-GRADE WEB UI
  * ============================================================================
  * Provides an interactive chessboard, real-time evaluation bar, synthesized
- * move audio, algebraic move notation, 50-move survival tracker, defensive hint
- * engine, and multi-agent comparative analysis dashboard.
+ * move audio, algebraic move notation, 50-move survival tracker, and
+ * multi-agent comparative analysis dashboard.
  */
 
 'use strict';
@@ -174,9 +174,7 @@ const state = {
   status: 'idle',
   selectedSquare: null,
   lastMove: null, // { from: 'a1', to: 'a4' }
-  hintSquare: null,
   agentName: 'DQN',
-  trainedAgents: new Set(),
   isFlipped: false, // false = Black at top, White bottom. true = Black at bottom
   moveHistory: [],
   isProcessing: false,
@@ -192,7 +190,6 @@ const DOM = {
   chessboard: document.getElementById('chessboard'),
   agentSelect: document.getElementById('agent-select'),
   btnNewGame: document.getElementById('btn-new-game'),
-  btnHint: document.getElementById('btn-hint'),
   btnFlip: document.getElementById('btn-flip'),
   btnResign: document.getElementById('btn-resign'),
   btnSoundToggle: document.getElementById('btn-sound-toggle'),
@@ -200,15 +197,10 @@ const DOM = {
   themeSelect: document.getElementById('theme-select'),
   evalFillWhite: document.getElementById('eval-fill-white'),
   evalScoreTag: document.getElementById('eval-score-tag'),
-  agentDisplayName: document.getElementById('agent-display-name'),
-  agentTypeTag: document.getElementById('agent-type-tag'),
-  agentSubtext: document.getElementById('agent-subtext'),
-  agentTrainedIndicator: document.getElementById('agent-trained-indicator'),
   agentAvailability: document.getElementById('agent-availability'),
-  agentAnalysis: document.getElementById('agent-analysis'),
+  serverStatus: document.getElementById('server-status'),
   whiteTurnIndicator: document.getElementById('white-turn-indicator'),
   blackTurnIndicator: document.getElementById('black-turn-indicator'),
-  whiteMaterial: document.getElementById('white-material'),
   survivalCountText: document.getElementById('survival-count-text'),
   survivalProgressFill: document.getElementById('survival-progress-fill'),
   trackerRemainingText: document.getElementById('tracker-remaining-text'),
@@ -217,9 +209,6 @@ const DOM = {
   halfMoveCount: document.getElementById('half-move-count'),
   fenInput: document.getElementById('fen-input'),
   btnCopyFen: document.getElementById('btn-copy-fen'),
-  hintBox: document.getElementById('hint-box'),
-  hintText: document.getElementById('hint-text'),
-  btnHintClose: document.getElementById('btn-hint-close'),
   gameOverlay: document.getElementById('game-overlay'),
   overlayIcon: document.getElementById('overlay-icon'),
   overlayTitle: document.getElementById('overlay-title'),
@@ -335,10 +324,6 @@ function renderBoard() {
       if (state.isCheck && sq === blackKingSquare) {
         squareEl.classList.add('in-check');
       }
-      if (state.hintSquare === sq) {
-        squareEl.classList.add('hint-target');
-      }
-
       // Target move indicators for selected square
       if (state.selectedSquare) {
         const targetMove = state.legalMoves.find(
@@ -464,10 +449,7 @@ function onDrop(e, targetSq) {
 async function startNewGame() {
   state.isProcessing = true;
   state.selectedSquare = null;
-  state.hintSquare = null;
-  DOM.hintBox.classList.add('hidden');
   DOM.gameOverlay.classList.add('hidden');
-  updateAgentInfoUI();
 
   try {
     const response = await fetch('/api/game/new', {
@@ -482,11 +464,24 @@ async function startNewGame() {
     }
 
     const data = await response.json();
+    setServerStatus(true);
+    DOM.agentAvailability.classList.remove('connection-error');
+    DOM.agentAvailability.textContent = '';
     syncGameState(data);
     sounds.playMove();
   } catch (err) {
     console.error('Error starting game:', err);
-    DOM.agentAvailability.textContent = `Could not start game: ${err.message}`;
+    if (err instanceof TypeError) {
+      setServerStatus(false);
+      DOM.agentAvailability.classList.add('connection-error');
+      DOM.agentAvailability.textContent =
+        `Can't reach the server at ${window.location.origin}. Start it with ` +
+        '`python scripts\\run_server.py --port 8000` and open `http://127.0.0.1:8000/` ' +
+        'so the page and API use the same port.';
+    } else {
+      DOM.agentAvailability.classList.add('connection-error');
+      DOM.agentAvailability.textContent = `Could not start game: ${err.message}`;
+    }
   } finally {
     state.isProcessing = false;
   }
@@ -495,8 +490,6 @@ async function startNewGame() {
 async function executeUserMove(moveUci) {
   state.isProcessing = true;
   state.selectedSquare = null;
-  state.hintSquare = null;
-  DOM.hintBox.classList.add('hidden');
 
   // Optimistic sound
   sounds.playMove();
@@ -541,34 +534,6 @@ async function executeUserMove(moveUci) {
   }
 }
 
-async function fetchHint() {
-  if (state.isProcessing || state.status !== 'playing') return;
-
-  try {
-    DOM.hintBox.classList.remove('hidden');
-    DOM.hintText.textContent = 'Analyzing position with tactical heuristics...';
-
-    const response = await fetch('/api/game/hint', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ game_id: state.gameId }),
-    });
-
-    if (!response.ok) throw new Error('Hint request failed');
-    const data = await response.json();
-
-    if (data.hint_move && data.to) {
-      state.hintSquare = data.to;
-      DOM.hintText.textContent = data.explanation;
-      renderBoard();
-    } else {
-      DOM.hintText.textContent = data.explanation || 'No hint available.';
-    }
-  } catch (err) {
-    DOM.hintText.textContent = 'Could not retrieve hint.';
-  }
-}
-
 async function resignGame() {
   if (state.status !== 'playing') return;
   if (!confirm('Are you sure you want to resign this game?')) return;
@@ -605,7 +570,6 @@ function syncGameState(data) {
   state.eval = data.evaluation || state.eval;
   state.moveHistory = data.move_history || state.moveHistory;
   state.agentName = data.agent_name || state.agentName;
-  updateAgentMoveAnalysis(data.agent_analysis || {});
 
   // Last move
   if (data.agent_move) {
@@ -626,7 +590,6 @@ function syncGameState(data) {
   updateSurvivalTracker();
   updateMoveNotationTable();
   DOM.fenInput.value = state.fen;
-  updateAgentInfoUI();
 
   // Check game over
   if (state.status !== 'playing') {
@@ -706,39 +669,6 @@ function updateMoveNotationTable() {
 
   // Auto-scroll to bottom of move list
   DOM.notationContainer.scrollTop = DOM.notationContainer.scrollHeight;
-}
-
-function updateAgentInfoUI() {
-  DOM.agentDisplayName.textContent = state.agentName;
-  DOM.agentTypeTag.textContent = state.agentName;
-  DOM.agentTrainedIndicator.textContent = state.trainedAgents.has(state.agentName)
-    ? 'Checkpoint ready'
-    : 'Unavailable';
-  if (state.agentName === 'DQN') {
-    DOM.agentSubtext.textContent = 'Legacy KRvK DQN baseline • legal moves only';
-  } else if (state.agentName.includes('fine-tuned')) {
-    DOM.agentSubtext.textContent = 'Tablebase-supervised initialization + Double-DQN fine-tuning';
-  } else if (state.agentName.includes('warm-start')) {
-    DOM.agentSubtext.textContent = 'Dueling network • supervised from KRvK tablebase';
-  }
-}
-
-function updateAgentMoveAnalysis(analysis) {
-  if (!analysis || Object.keys(analysis).length === 0) {
-    DOM.agentAnalysis.textContent = 'No solver/Q-value details for this move.';
-    return;
-  }
-  const details = [];
-  if (Number.isFinite(analysis.q_value)) {
-    details.push(`<strong>Q-value:</strong> ${analysis.q_value.toFixed(3)}`);
-  }
-  if (Number.isInteger(analysis.solver_dtm)) {
-    details.push(`<strong>Tablebase DTM:</strong> ${analysis.solver_dtm} plies`);
-    details.push(
-      `<strong>Move:</strong> ${analysis.optimal_move ? 'tablebase-optimal' : 'not optimal'}`
-    );
-  }
-  DOM.agentAnalysis.innerHTML = details.join('<br>') || 'No solver/Q-value details for this move.';
 }
 
 function handleGameOver(status) {
@@ -841,7 +771,7 @@ function renderAgentOutcomeChart(models) {
   if (!canvas || !legend) return;
 
   const outcomes = [
-    { key: 'wins', label: 'Checkmate wins', color: '#38b779' },
+    { key: 'wins', label: 'Checkmate wins', color: '#b58863' },
     { key: 'rook_captures', label: 'Rook captured', color: '#e15b64' },
     { key: 'repetitions', label: 'Repetition', color: '#e5a93d' },
     { key: 'horizon_draws', label: 'Horizon', color: '#718096' },
@@ -901,7 +831,7 @@ function renderAgentOutcomeChart(models) {
   const right = width - 24;
   const top = 30;
   const bottom = height - 34;
-  ctx.font = '11px Inter, sans-serif';
+  ctx.font = '11px DM Sans, sans-serif';
   ctx.lineWidth = 1;
   ctx.strokeStyle = '#34312c';
   ctx.fillStyle = '#8b8579';
@@ -926,11 +856,11 @@ function renderAgentOutcomeChart(models) {
     const barY = labelY + 8;
     const barHeight = Math.min(24, rowStep * 0.38);
     ctx.fillStyle = '#ded8cc';
-    ctx.font = '600 11px Inter, sans-serif';
+    ctx.font = '600 11px DM Sans, sans-serif';
     ctx.fillText(name, 8, labelY);
     ctx.textAlign = 'right';
     ctx.fillStyle = '#8b8579';
-    ctx.font = '11px Inter, sans-serif';
+    ctx.font = '11px DM Sans, sans-serif';
     ctx.fillText(
       `Win ${resultOutcomes.wins || 0}  ·  Rook ${resultOutcomes.rook_captures || 0}  ·  Rep ${resultOutcomes.repetitions || 0}  ·  Horizon ${resultOutcomes.horizon_draws || 0}  ·  Other ${resultOutcomes.other_draws || 0}  (${result.games} games)`,
       right,
@@ -948,7 +878,7 @@ function renderAgentOutcomeChart(models) {
       ctx.fillRect(currentX, barY, segmentWidth, barHeight);
       if (segmentWidth > 28) {
         ctx.fillStyle = '#171614';
-        ctx.font = '600 10px Inter, sans-serif';
+        ctx.font = '600 10px DM Sans, sans-serif';
         ctx.fillText(String(count), currentX + 4, barY + barHeight / 2 + 3);
       }
       currentX += segmentWidth;
@@ -1026,14 +956,17 @@ async function loadAgentOptions() {
     const response = await fetch('/api/agents', { cache: 'no-store' });
     if (!response.ok) throw new Error('Could not retrieve available model checkpoints.');
     const data = await response.json();
+    setServerStatus(true);
     DOM.agentSelect.replaceChildren();
     data.agents.forEach((agent) => {
-      if (agent.trained) state.trainedAgents.add(agent.name);
       const option = document.createElement('option');
       option.value = agent.name;
-      option.textContent = agent.trained
-        ? agent.name
-        : `${agent.name} — train checkpoint first`;
+      const label = {
+        DQN: 'DQN baseline',
+        'Dueling network (tablebase warm-start)': 'Tablebase warm-start',
+        'Dueling Double DQN (fine-tuned)': 'Double DQN · fine-tuned',
+      }[agent.name] || agent.name;
+      option.textContent = agent.trained ? label : `${label} · unavailable`;
       option.disabled = !agent.trained;
       DOM.agentSelect.appendChild(option);
     });
@@ -1041,15 +974,32 @@ async function loadAgentOptions() {
     DOM.agentSelect.value = state.agentName;
     DOM.btnNewGame.disabled = !state.agentName;
     DOM.agentAvailability.textContent = state.agentName
-      ? 'Only trained checkpoints can be selected.'
+      ? ''
       : 'No trained checkpoints found. Train a model before starting a game.';
-    updateAgentInfoUI();
   } catch (err) {
     console.error('Failed to load model list:', err);
+    if (err instanceof TypeError) setServerStatus(false);
     state.agentName = '';
     DOM.agentAvailability.textContent = 'Could not check trained checkpoints; refresh the page or restart the server.';
     DOM.btnNewGame.disabled = true;
-    updateAgentInfoUI();
+  }
+}
+
+function setServerStatus(online) {
+  DOM.serverStatus.classList.toggle('offline', !online);
+  DOM.serverStatus.classList.toggle('online', online);
+  DOM.serverStatus.querySelector('.status-indicator-text').textContent =
+    online ? 'Online' : 'Offline';
+  DOM.serverStatus.title = online ? 'API connected' : 'API unavailable on this address';
+}
+
+async function checkServerStatus() {
+  try {
+    const response = await fetch('/health', { cache: 'no-store' });
+    const data = response.ok ? await response.json() : null;
+    setServerStatus(data?.status === 'ok');
+  } catch {
+    setServerStatus(false);
   }
 }
 
@@ -1079,7 +1029,7 @@ function renderCheckpointQualityChart(models) {
   const bottom = height - 42;
   const minRate = 0.7;
   const maxRate = 1.0;
-  ctx.font = '11px Inter, sans-serif';
+  ctx.font = '11px DM Sans, sans-serif';
   ctx.lineWidth = 1;
   ctx.strokeStyle = '#34312c';
   ctx.fillStyle = '#8b8579';
@@ -1138,16 +1088,7 @@ function setupEventListeners() {
   DOM.agentSelect.addEventListener('change', (e) => {
     state.agentName = e.target.value;
     DOM.btnNewGame.disabled = !state.agentName;
-    updateAgentInfoUI();
     if (state.agentName) startNewGame();
-  });
-
-  // Hint
-  DOM.btnHint.addEventListener('click', fetchHint);
-  DOM.btnHintClose.addEventListener('click', () => {
-    DOM.hintBox.classList.add('hidden');
-    state.hintSquare = null;
-    renderBoard();
   });
 
   // Flip board
@@ -1195,7 +1136,7 @@ function setupEventListeners() {
 window.addEventListener('DOMContentLoaded', () => {
   setupNavigation();
   setupEventListeners();
-  updateAgentInfoUI();
+  checkServerStatus();
   loadAgentOptions().then(() => {
     if (state.agentName) startNewGame();
   });
