@@ -1,127 +1,125 @@
 # Chess Endgame RL: Learning to Convert KRvK
 
-An endgame-learning project focused on **King and Rook versus King (KRvK)**. The attacker tries to checkmate; the lone-king defender tries to resist. A local web app lets you play as the defender and inspect model comparisons.
+## Project summary
 
-This is a research and teaching project, not a general-purpose chess engine. The included exact tablebase already solves these small endgames, so it supplies training labels and evaluation ground truth.
+This project studies whether neural-network agents can learn to convert a **King + Rook versus King (KRvK)** chess endgame into checkmate. The agent controls White's king and rook; a Black lone-king defender resists. The main results compare a reward-trained DQN baseline, a tablebase-supervised Dueling network, and reward-based Double-DQN fine-tuning of that supervised model.
 
-## Current agents
+KRvK is small enough to have an exact endgame tablebase. The tablebase supplies optimal-move labels and evaluation ground truth. It is used as a reference, not as evidence that a learned agent is stronger than an exact solver. This is an endgame research and teaching demonstration, not a general chess engine.
 
-The app offers three KRvK attackers:
+## Lab rubric
 
-| Agent | How it learns | What it represents |
+### 1. Problem definition and RL formulation — 5 marks
+
+**Problem.** Convert a winning KRvK position into checkmate while the opposing king tries to avoid it. This is a fully observable, turn-based sequential decision problem. Rewards are delayed until terminal outcomes, and many nominal moves are illegal.
+
+**Why use reinforcement learning?** The problem provides a controlled setting for studying sequential decisions, delayed reward, and legal-action selection. Since an exact solver exists for this small endgame, it also provides ground truth for labels and evaluation. The project does not claim RL is needed to solve KRvK or that results transfer to full chess.
+
+**Markov decision process (MDP).** A training transition consists of one attacker move and, unless the game has ended, one defender reply.
+
+| Element | Definition |
+|---|---|
+| Environment | Three-piece KRvK. The attacker plays White; the defender is random or tablebase-optimal. |
+| State | Model-specific. The reward-trained DQN uses 193 values: three 8×8 piece planes plus normalized move count. The Dueling models use 18 binary 8×8 planes in side-to-move perspective, encoding pieces and relevant board state. |
+| Action | Model-specific. DQN uses 36 compact king/rook moves. Dueling models use `from_square × 64 + to_square` (4,096 indices). A legal-action mask prevents selecting illegal moves. The encoding supports queen promotion only. |
+| Reward | The reward-trained DQN receives +10 for checkmate, with a speed bonus; −5 for stalemate; −8 if the rook is captured; −0.02 per step; +0.3 for check; and a small king-distance shaping term. Failure to mate within the move limit incurs −3. |
+| Discount and horizon | Double-DQN fine-tuning uses γ = 0.99 by default. Its training transition is one attacker/defender turn, with a 100-ply episode horizon. Terminal outcomes and horizon truncation are distinguished. |
+| Fine-tuning reward | The recorded Double-DQN setup uses +1 for attacker checkmate, −1 for attacker loss, 0 for a draw, and −0.001 per nonterminal step. Optional potential shaping is `γΦ(s′) − Φ(s)`; a supervised anchor loss regularizes updates toward tablebase labels. |
+| Episode end | Checkmate, stalemate, insufficient material, claimable draw, or the 100-ply training horizon. Reaching the horizon is a truncation, not a checkmate. |
+
+### 2. Implementation and working RL agent — 10 marks
+
+#### Algorithms and implementation
+
+| Agent | Algorithm and training | Purpose |
 |---|---|---|
-| **DQN** | Trained from scratch from game rewards. | A compact 193-value board-and-move-count input and 36 legal-move actions. |
-| **Dueling network (tablebase warm-start)** | Learns to imitate best-move labels supplied by the exact tablebase. This is supervised learning, not reinforcement learning. | 18 binary 8×8 board planes and 4,096 from-square/to-square action indices. |
-| **Dueling Double DQN (fine-tuned)** | Starts from the tablebase-supervised checkpoint and continues learning from rewards with Double-DQN updates. | The same 18-plane input and 4,096-action encoding as the warm-start. |
+| DQN baseline | Deep Q-Network trained from scratch using game rewards. It uses the 193-value input and 36-action encoding. | Reward-only RL baseline. |
+| Dueling warm-start | Convolutional Dueling network trained with supervised labels from the exact tablebase. It uses 18 × 8 × 8 inputs and 4,096 action indices with legal-action masking. | Solver-guided reference policy; this stage is supervised learning, not RL. |
+| Warm-start + Double DQN | Starts from the supervised Dueling checkpoint and continues with reward-based Double-DQN updates. It uses the same representation and action encoding as the warm-start. | Tests whether reward-based fine-tuning improves the solver-supervised policy. |
 
-The fine-tuned model did not outperform its supervised starting checkpoint in the recorded evaluation. This distinction matters: the warm-start copies solver guidance, while the fine-tuned model adds reward-driven updates; neither result shows that reward-only learning from scratch is stronger than the solver.
+The Dueling network has separate value and advantage heads. During action selection, only legal actions are considered. The environment checks chess legality and handles checkmate, draws, piece capture, and the move horizon. Automated tests cover environment rules, action encoding, tablebase behavior, training/evaluation components, and the UI API.
 
-## What is in the project
+#### Training record and parameter selection
 
-- A legal-move-aware KRvK/KQvK environment with random and tablebase-optimal defenders.
-- Exact retrograde tablebases used as a source of optimal-move labels and game-theoretic evaluation.
-- A convolutional Dueling network, supervised warm-start training, and optional Double-DQN fine-tuning.
-- Reproducible evaluation of game outcomes and tablebase move quality.
-- A browser interface for playing against available agents, viewing comparisons, and reading a plain-language formulation.
+- The KRvK warm-start checkpoint was trained for **5 of the configured 10 supervised epochs** (seed 7) and retained from epoch 5. On its 17,517-position validation split it reached 94.19% optimal moves.
+- The bounded Double-DQN run started from that checkpoint, used the optimal defender, and stopped after 1,000 environment steps (79 episodes) as validation move quality degraded. The retained checkpoint was the best observed RL snapshot.
+- The DQN baseline is trained from scratch from reward feedback; its recorded game results are reported below.
+- Hyperparameters are **implementation defaults, not empirically optimized settings**. For example, supervised learning rate is 3e-4, batch size 64, and configured epochs 10; Double-DQN defaults include γ = 0.99, learning rate 1e-4, replay capacity 50,000, and target-network synchronization every 1,000 updates.
+- No systematic hyperparameter sweep or multi-seed selection was run. These values must not be described as experimentally optimal.
 
-## Recorded KRvK evaluation
+The trained checkpoints are included in the repository. To run the demo, training is not required.
 
-Protocol v1 uses seed 7, 150 held-out attacker-winning starting positions per defender, and a 100-ply game horizon. Each of the three agents is evaluated on the same starts. The optimal defender selects a strongest available tablebase defense.
+#### Run the demo
 
-| Agent | Defender | Checkmate wins | Rook captures | Repetitions | Horizon draws | Other draws | Optimal moves |
-|---|---|---:|---:|---:|---:|---:|---:|
-| DQN | Random | 0 | 73 | 42 | 35 | 0 | — |
-| DQN | Tablebase-optimal | 0 | 129 | 21 | 0 | 0 | — |
-| Tablebase warm-start | Random | 144 | 5 | 0 | 0 | 1 | 94.06% |
-| Tablebase warm-start | Tablebase-optimal | 124 | 19 | 5 | 0 | 2 | 94.06% |
-| Warm-start + Double DQN | Random | 121 | 2 | 24 | 0 | 3 | 91.45% |
-| Warm-start + Double DQN | Tablebase-optimal | 84 | 29 | 34 | 0 | 3 | 91.45% |
-
-All rows contain 150 games. The outcome columns distinguish reasons games did not end in checkmate. A rook capture leaves bare kings, so it is technically a draw but is not a successful conversion by the attacker. Losses are omitted because the attacking side cannot be checkmated in KRvK.
-
-The **Optimal moves** values are a separate measurement: the fraction of 10,000 held-out positions where the Dueling checkpoint selects a tablebase-optimal move. The DQN uses a different representation and has no comparable move-quality score in this report. Fine-tuning validation is another separate measurement, recorded over 256 positions at training checkpoints.
-
-These are single-seed KRvK results, not an Elo rating, a full-chess measure, or a multi-seed statistical claim. Complete machine-readable results are in [`results/results.json`](results/results.json); fine-tuning validation data is in [`models/rl/krk.metrics.json`](models/rl/krk.metrics.json).
-
-## Run the web app
-
-From the repository root, install dependencies in a virtual environment:
+From the repository root, install the dependencies and start the local server:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python -m pip install -e ".[train]"
-```
-
-Start the local server:
-
-```powershell
 python scripts\run_server.py --port 8000
 ```
 
-Open <http://127.0.0.1:8000>. If that port is in use, select another free port. PyTorch is required for loading the Dueling checkpoints. Avoid exposing the development server directly to the public internet.
+Open <http://127.0.0.1:8000>. Keep the page and server on the same port. PyTorch is required to load the Dueling checkpoints.
 
-The UI has three sections:
+### 3. Results and analysis — 10 marks
 
-- **Play Agent:** play as the defending king against a trained attacker.
-- **Comparative Analysis:** compare game outcomes under the same protocol; review the separated rook-capture, repetition, horizon, and other-draw categories; inspect Dueling move-quality and fine-tuning validation.
-- **RL Formulation:** see the KRvK state, action, reward, and episode definitions in simple language.
+#### Evaluation protocol and metrics
 
-## Train and evaluate
+The recorded KRvK evaluation uses **Protocol v1**, seed **7**, **150 games per agent per defender**, the same held-out attacker-winning starting positions, and a **100-ply horizon**. Defenders are random or tablebase-optimal. The separate move-quality evaluation uses **10,000 held-out positions** and measures how often each Dueling agent selects a tablebase-optimal move. The DQN's action representation is different, so it has no comparable move-quality figure in this report.
 
-The commands below are run from the repository root. Training can overwrite checkpoints and result files; save any results you want to keep before retraining.
+The following figures are percentages. Games not won by the attacker are reported as draws with their causes separated; the KRvK attacker cannot be checkmated, so there were no losses.
 
-Train the supervised warm-start:
+#### Checkmate win rate by defender
 
-```powershell
-python -m chess_endgame_rl.warmstart.train_supervised --kind KRvK --epochs 10 --seed 7
+```mermaid
+xychart-beta
+    title "Checkmate wins in 150 games per defender"
+    x-axis ["DQN", "Warm-start", "Fine-tuned"]
+    y-axis "Win rate (%)" 0 --> 100
+    bar [0, 96, 80.67]
+    bar [0, 82.67, 56]
 ```
 
-Optionally fine-tune from that checkpoint:
+**Series order:** first bar is versus the random defender; second bar is versus the tablebase-optimal defender. The warm-start scored 144/150 wins against random defense and 124/150 against optimal defense. Fine-tuning scored 121/150 and 84/150 respectively. DQN scored 0/150 against either defender in this recorded protocol.
 
-```powershell
-python scripts\finetune_ddqn.py --kind KRvK --episodes 1000 --seed 7
+#### Tablebase move quality
+
+```mermaid
+xychart-beta
+    title "Optimal-move rate on 10,000 held-out positions"
+    x-axis ["Warm-start", "Fine-tuned"]
+    y-axis "Optimal moves (%)" 0 --> 100
+    bar [94.06, 91.45]
 ```
 
-Evaluate the KRvK agents using Protocol v1:
+| Agent | Optimal moves | Suboptimal moves | Winning position changed to a draw |
+|---|---:|---:|---:|
+| Tablebase warm-start | 94.06% | 5.94% | 0.52% |
+| Warm-start + Double DQN | 91.45% | 8.55% | 0.48% |
+| DQN baseline | Not measured comparably | — | — |
 
-```powershell
-python -m chess_endgame_rl.eval.evaluate_all --kind krk --games 150 --quality-positions 10000 --seed 7
-```
+Move quality and game outcomes measure different things: the first is a position-level comparison with solver-optimal actions; the second measures full games against defenders. They should not be treated as interchangeable.
 
-## Tests
+#### Game outcomes
 
-Run the full suite:
+Each row is 150 games. “Other draws” include drawn outcomes not classified as rook capture, repetition, or horizon draw.
 
-```powershell
-python -m pytest -q
-```
+| Agent | Defender | Checkmates | Rook captured | Repetition | Horizon draw | Other draws |
+|---|---|---:|---:|---:|---:|---:|
+| DQN | Random | 0 | 73 | 42 | 35 | 0 |
+| DQN | Tablebase-optimal | 0 | 129 | 21 | 0 | 0 |
+| Tablebase warm-start | Random | 144 | 5 | 0 | 0 | 1 |
+| Tablebase warm-start | Tablebase-optimal | 124 | 19 | 5 | 0 | 2 |
+| Warm-start + Double DQN | Random | 121 | 2 | 24 | 0 | 3 |
+| Warm-start + Double DQN | Tablebase-optimal | 84 | 29 | 34 | 0 | 3 |
 
-Tests cover environment rules and encodings, tablebase behavior, model and training components, evaluation protocols, outcome categorization, and UI endpoints.
+#### Interpretation and limitations
 
-## Repository guide
+- The tablebase-supervised warm-start performed best in this recorded evaluation.
+- Double-DQN fine-tuning did not improve the warm-start: optimal-move rate decreased from 94.06% to 91.45%, and wins against the optimal defender decreased from 124/150 to 84/150.
+- The reward-trained DQN baseline did not checkmate within the recorded games. Many games ended through rook capture, repetition, or the horizon.
+- These results cover **one seed and KRvK only**. They are not an Elo rating, a full-chess evaluation, a multi-seed statistical result, or evidence of transfer to larger endgames.
+- Hyperparameters were not selected through a tuning sweep. Further seeds and controlled parameter experiments are needed before making broader claims.
 
-| Path | Purpose |
-|---|---|
-| `chess_endgame_rl/env/` | Endgame rules, state/action encoding, defenders, and rewards. |
-| `chess_endgame_rl/solver/` | Exact KRvK/KQvK retrograde tablebases. |
-| `chess_endgame_rl/models/` | Convolutional Dueling network. |
-| `chess_endgame_rl/warmstart/` | Tablebase-labelled dataset and supervised training. |
-| `chess_endgame_rl/agents/` | DQN and Double-DQN implementations. |
-| `chess_endgame_rl/eval/` | Tablebase move-quality and game-outcome evaluation. |
-| `chess_endgame_rl/ui/` | FastAPI server and browser application. |
-| `configs/` | Scenario and reward configuration. |
-| `data/` | Endgame tablebase data and caches. |
-| `docs/` | Problem definition, design, hyperparameters, and model card. |
-| `models/` | Trained checkpoints and metadata. |
-| `results/` | Recorded evaluations and reports. |
-| `scripts/` | Training, evaluation, and app entry points. |
-| `tests/` | Automated test suite. |
-
-## Limitations
-
-- The project focuses on small, solver-known endgames rather than full chess.
-- The strongest recorded policy relies on tablebase supervision.
-- Reward-driven fine-tuning did not improve the supervised checkpoint in this run.
-- The reported current evaluation covers KRvK and one seed; further seeds and controlled experiments are needed for broader conclusions.
+The machine-readable recorded evaluation is [`results/results.json`](results/results.json); the implementation defaults and their status are documented in [`docs/HYPERPARAMETERS.md`](docs/HYPERPARAMETERS.md).
